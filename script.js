@@ -1127,7 +1127,9 @@ function loadYourIDSocketIO() {
 
     const script = document.createElement("script");
 
-    script.src = "http://localhost:3000/socket.io/socket.io.js";
+   ;const script = document.createElement("script");
+
+script.src = "https://cdn.socket.io/4.8.1/socket.io.min.js";
 
     script.onload = () => {
         connectYourIDServer();
