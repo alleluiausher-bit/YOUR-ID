@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YourID</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div id="toast"></div>
+
+<!-- ==================== BIENVENUE ==================== -->
+<section id="welcomeScreen" class="screen active welcome">
+
+    <div class="brand-logo">
+        <span>•••</span>
+    </div>
+
+    <h1>Your<span>ID</span></h1>
+
+    <p class="welcome-text">
+        Votre identité.<br>
+        Vos conversations.<br>
+        En toute liberté.
+    </p>
+
+    <button class="btn primary" onclick="showScreen('registerScreen')">
+        CRÉER UN COMPTE
+    </button>
+
+    <button class="btn secondary" onclick="showScreen('loginScreen')">
+        SE CONNECTER
+    </button>
+
+    <p class="version">YourID • V1.0</p>
+
+</section>
+
+<!-- ==================== INSCRIPTION ==================== -->
+<section id="registerScreen" class="screen auth-screen">
+
+    <div class="topbar">
+        <button class="back" onclick="showScreen('welcomeScreen')">←</button>
+        <h2>Créer un compte</h2>
+    </div>
+
+    <div class="auth-icon">👤</div>
+
+    <p class="description">
+        Crée ton identité YourID et obtiens<br>
+        ton numéro fictif unique.
+    </p>
+
+    <div class="input-box">
+        <span>👤</span>
+        <input id="username" type="text" placeholder="Pseudo" maxlength="25">
+    </div>
+
+    <div class="input-box">
+        <span>🔒</span>
+        <input id="password" type="password" placeholder="Mot de passe">
+        <button class="eye" onclick="togglePassword('password', this)">👁</button>
+    </div>
+
+    <div class="input-box">
+        <span>🔒</span>
+        <input id="confirmPassword" type="password" placeholder="Confirmer le mot de passe">
+    </div>
+
+    <button class="btn primary" onclick="createAccount()">
+        CRÉER MON COMPTE
+    </button>
+
+    <div class="generated-id">
+        <small>TON NUMÉRO YOURID</small>
+        <strong id="generatedNumber">---</strong>
+    </div>
+
+</section>
+
+<!-- ==================== CONNEXION ==================== -->
+<section id="loginScreen" class="screen auth-screen">
+
+    <div class="topbar">
+        <button class="back" onclick="showScreen('welcomeScreen')">←</button>
+        <h2>Connexion</h2>
+    </div>
+
+    <div class="auth-icon">🔐</div>
+
+    <p class="description">
+        Connecte-toi à ton compte YourID.
+    </p>
+
+    <div class="input-box">
+        <span>🆔</span>
+        <input id="loginId" type="text" placeholder="Votre ID">
+    </div>
+
+    <div class="input-box">
+        <span>🔒</span>
+        <input id="loginPassword" type="password" placeholder="Mot de passe">
+        <button class="eye" onclick="togglePassword('loginPassword', this)">👁</button>
+    </div>
+
+    <button class="btn primary" onclick="loginUser()">
+        SE CONNECTER
+    </button>
+
+</section>
+
+<!-- ==================== APPLICATION ==================== -->
+<section id="homeScreen" class="screen app-screen">
+
+    <header class="app-header">
+
+        <div class="profile-mini" onclick="openProfile()">
+            <div id="miniAvatar" class="mini-avatar">👤</div>
+
+            <div>
+                <small>Connecté en tant que</small>
+                <strong id="headerUsername">Utilisateur</strong>
+            </div>
+        </div>
+
+        <button class="icon-button" onclick="openSettings()">⚙️</button>
+
+    </header>
+
+    <div class="my-id-card">
+
+        <div>
+            <small>MON YOURID</small>
+            <strong id="myId">---</strong>
+        </div>
+
+        <div class="id-actions">
+            <button onclick="copyMyId()" title="Copier">📋</button>
+            <button onclick="shareMyId()" title="Partager">↗️</button>
+        </div>
+
+    </div>
+
+    <div class="search-box">
+        <span>🔍</span>
+        <input id="searchInput" type="text" placeholder="Rechercher...">
+    </div>
+
+    <div class="tabs">
+
+        <button class="tab active" onclick="showTab('discussions', this)">
+            Discussions
+        </button>
+
+        <button class="tab" onclick="showTab('contacts', this)">
+            Contacts
+        </button>
+
+    </div>
+
+    <!-- DISCUSSIONS -->
+    <div id="discussions" class="tab-content">
+
+        <div id="conversations">
+
+            <div class="empty-state" id="emptyConversations">
+                <div class="empty-icon">💬</div>
+                <h3>Aucune discussion</h3>
+                <p>
+                    Ajoute un contact pour<br>
+                    commencer à discuter.
+                </p>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- CONTACTS -->
+    <div id="contacts" class="tab-content hidden">
+
+        <div id="contactList">
+
+            <div class="empty-state">
+                <div class="empty-icon">👥</div>
+                <h3>Aucun contact</h3>
+                <p>Ajoute ton premier contact.</p>
+            </div>
+
+        </div>
+
+    </div>
+
+    <button class="new-chat" onclick="showScreen('addContactScreen')">
+        +
+    </button>
+
+    <nav class="bottom-nav">
+
+        <button class="nav-item active" onclick="goHome()">
+            <span>💬</span>
+            <small>Discussions</small>
+        </button>
+
+        <button class="nav-item" onclick="goContacts()">
+            <span>👥</span>
+            <small>Contacts</small>
+        </button>
+
+        <button class="nav-item" onclick="openCalls()">
+            <span>📞</span>
+            <small>Appels</small>
+        </button>
+
+        <button class="nav-item" onclick="openProfile()">
+            <span>👤</span>
+            <small>Profil</small>
+        </button>
+
+    </nav>
+
+</section>
+
+<!-- ==================== AJOUT CONTACT ==================== -->
+<section id="addContactScreen" class="screen auth-screen">
+
+    <div class="topbar">
+        <button class="back" onclick="goHome()">←</button>
+        <h2>Ajouter un contact</h2>
+    </div>
+
+    <div class="auth-icon">👥</div>
+
+    <p class="description">
+        Utilise le YourID de ton contact.
+    </p>
+
+    <div class="input-box">
+        <span>🆔</span>
+        <input id="contactId" type="text" placeholder="Ex : 741 258 963">
+    </div>
+
+    <div class="input-box">
+        <span>👤</span>
+        <input id="contactName" type="text" placeholder="Nom du contact">
+    </div>
+
+    <button class="btn primary" onclick="addContact()">
+        AJOUTER
+    </button>
+
+</section>
+
+<!-- ==================== CHAT ==================== -->
+<section id="chatScreen" class="screen chat-screen">
+
+    <header class="chat-header">
+
+        <button class="back static-back" onclick="goHome()">←</button>
+
+        <div id="chatAvatar" class="chat-avatar">
+            👤
+        </div>
+
+        <div class="chat-user">
+            <strong id="chatName">Contact</strong>
+            <small id="chatId">---</small>
+        </div>
+
+        <div class="chat-actions">
+            <button onclick="fakeCall()">📞</button>
+            <button onclick="chatMenu()">⋮</button>
+        </div>
+
+    </header>
+
+    <div id="messages" class="messages"></div>
+
+    <div class="message-input">
+
+        <button class="attach-button" onclick="showToast('Fonction bientôt disponible')">
+            ＋
+        </button>
+
+        <input
+            id="messageText"
+            type="text"
+            placeholder="Écrire un message..."
+            onkeydown="handleMessageKey(event)"
+        >
+
+        <button class="send-button" onclick="sendMessage()">
+            ➤
+        </button>
+
+    </div>
+
+</section>
+
+<!-- ==================== PROFIL ==================== -->
+<section id="profileScreen" class="screen profile-screen">
+
+    <div class="topbar">
+        <button class="back" onclick="goHome()">←</button>
+        <h2>Mon profil</h2>
+    </div>
+
+    <div class="profile-photo-area">
+
+        <div id="profileAvatar" class="profile-avatar">
+            👤
+        </div>
+
+        <label class="photo-button">
+            📷
+            <input type="file" accept="image/*" onchange="changeProfilePhoto(event)">
+        </label>
+
+    </div>
+
+    <h2 id="profileUsername">Utilisateur</h2>
+
+    <div class="profile-id">
+        <small>YOURID</small>
+        <strong id="profileId">---</strong>
+    </div>
+
+    <button class="menu-button" onclick="copyMyId()">
+        📋 &nbsp; Copier mon YourID
+    </button>
+
+    <button class="menu-button" onclick="shareMyId()">
+        ↗️ &nbsp; Partager mon YourID
+    </button>
+
+    <button class="menu-button danger" onclick="logout()">
+        🚪 &nbsp; Se déconnecter
+    </button>
+
+</section>
+
+<!-- ==================== APPELS ==================== -->
+<section id="callsScreen" class="screen profile-screen">
+
+    <div class="topbar">
+        <button class="back" onclick="goHome()">←</button>
+        <h2>Appels</h2>
+    </div>
+
+    <div id="callList">
+
+        <div class="empty-state">
+            <div class="empty-icon">📞</div>
+            <h3>Aucun appel</h3>
+            <p>Ton historique d'appels apparaîtra ici.</p>
+        </div>
+
+    </div>
+
+</section>
+
+<!-- ==================== PARAMÈTRES ==================== -->
+<section id="settingsScreen" class="screen profile-screen">
+
+    <div class="topbar">
+        <button class="back" onclick="goHome()">←</button>
+        <h2>Paramètres</h2>
+    </div>
+
+    <div class="settings-group">
+
+        <h3>Apparence</h3>
+
+        <div class="setting-row">
+
+            <div>
+                <strong>🌙 Mode sombre</strong>
+                <small>Modifier l'apparence de YourID</small>
+            </div>
+
+            <label class="switch">
+                <input id="darkModeToggle" type="checkbox" onchange="toggleDarkMode()">
+                <span></span>
+            </label>
+
+        </div>
+
+    </div>
+
+    <div class="settings-group">
+
+        <h3>Compte</h3>
+
+        <button class="setting-button" onclick="openProfile()">
+            👤 Mon profil
+            <span>›</span>
+        </button>
+
+        <button class="setting-button" onclick="showToast('YourID V1.0')">
+            ℹ️ À propos
+            <span>›</span>
+        </button>
+
+    </div>
+
+</section>
+
+<script src="script.js"></script>
+
+</body>
+</html>
