@@ -13,7 +13,7 @@ const io = new Server(server, {
 
 const PORT = 3000;
 
-app.use(express.static(__dirame))
+app.use(express.static(__dirname))
   
 
 io.on("connection", (socket) => {
