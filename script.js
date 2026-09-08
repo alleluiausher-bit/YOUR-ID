@@ -1125,11 +1125,8 @@ function loadYourIDSocketIO() {
         return;
     }
 
-    const script = document.createElement("script");
-
-   ;const script = document.createElement("script");
-
-script.src = "https://cdn.socket.io/4.8.1/socket.io.min.js";
+   const script = document.createElement("script");
+    scrip.src = "https://cdn.socket.io/4.8.1/socket.io.min.js";
 
     script.onload = () => {
         connectYourIDServer();
