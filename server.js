@@ -13,9 +13,8 @@ const io = new Server(server, {
 
 const PORT = 3000;
 
-app.get("/", (req, res) => {
-  res.send("Serveur YourID opérationnel 🚀");
-});
+app.use(express.static(__dirame))
+  
 
 io.on("connection", (socket) => {
   console.log("Un utilisateur est connecté :", socket.id);
