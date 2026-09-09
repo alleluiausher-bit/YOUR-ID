@@ -1448,7 +1448,7 @@ function createPeerConnection(remoteID) {
                 error
             );
         });
-};D,
+};
                         candidate:
                             event.candidate
                     }
