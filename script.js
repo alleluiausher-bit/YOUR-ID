@@ -1,39 +1,94 @@
 /* =====================================================
-   YOURID V1
-   ===================================================== */
+   YOURID — SCRIPT PRINCIPAL
+   Messages Internet + contacts + WebRTC audio/vidéo
+===================================================== */
 
-/* ==================== VARIABLES ==================== */
+/* =========================
+   VARIABLES
+========================= */
 
+let currentUser = null;
+let authToken = null;
+let contacts = [];
 let currentContact = null;
-let toastTimer = null;
 
-/* ==================== OUTILS ==================== */
+let socket = null;
 
-function getContacts() {
-    return JSON.parse(localStorage.getItem("yourID_contacts")) || [];
+let peerConnection = null;
+let localStream = null;
+let currentCallType = "audio";
+let pendingOffer = null;
+let pendingCaller = null;
+
+let pendingIceCandidates = [];
+
+let microphoneEnabled = true;
+let cameraEnabled = true;
+
+let typingTimeout = null;
+
+/* =========================
+   SERVEUR
+========================= */
+
+/*
+   io() utilise automatiquement le même serveur
+   que YourID sur Render.
+*/
+
+const API = "/api";
+
+/* =========================
+   OUTILS
+========================= */
+
+function $(id) {
+    return document.getElementById(id);
 }
 
-function saveContacts(contacts) {
-    localStorage.setItem(
-        "yourID_contacts",
-        JSON.stringify(contacts)
-    );
+function showToast(message) {
+
+    const toast = $("toast");
+
+    if (!toast) return;
+
+    toast.textContent = message;
+    toast.classList.add("show");
+
+    setTimeout(() => {
+        toast.classList.remove("show");
+    }, 3000);
 }
 
-function getCurrentUser() {
-    return JSON.parse(
-        localStorage.getItem("yourID_user")
-    );
+function getInitial(name) {
+
+    if (!name) return "?";
+
+    return name.trim().charAt(0).toUpperCase();
 }
 
-function saveCurrentUser(user) {
-    localStorage.setItem(
-        "yourID_user",
-        JSON.stringify(user)
-    );
+function escapeHTML(text) {
+
+    const div = document.createElement("div");
+
+    div.textContent = text;
+
+    return div.innerHTML;
 }
 
-/* ==================== ÉCRANS ==================== */
+function formatTime(date) {
+
+    const d = new Date(date);
+
+    return d.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit"
+    });
+}
+
+/* =========================
+   ÉCRANS
+========================= */
 
 function showScreen(screenId) {
 
@@ -41,1713 +96,1491 @@ function showScreen(screenId) {
         screen.classList.remove("active");
     });
 
-    const screen = document.getElementById(screenId);
+    const screen = $(screenId);
 
     if (screen) {
         screen.classList.add("active");
     }
-
-    window.scrollTo(0, 0);
 }
 
-/* ==================== TOAST ==================== */
+function showPage(pageId) {
 
-function showToast(message) {
+    document.querySelectorAll(".page").forEach(page => {
+        page.classList.remove("active");
+    });
 
-    const toast = document.getElementById("toast");
+    const page = $(pageId);
 
-    toast.textContent = message;
-    toast.classList.add("show");
+    if (page) {
+        page.classList.add("active");
+    }
 
-    clearTimeout(toastTimer);
+    document.querySelectorAll(".nav-btn").forEach(button => {
+        button.classList.remove("active");
 
-    toastTimer = setTimeout(() => {
-        toast.classList.remove("show");
-    }, 2200);
+        if (button.dataset.page === pageId) {
+            button.classList.add("active");
+        }
+    });
+
+    if (pageId === "contactsPage") {
+        loadContacts();
+    }
 }
 
-/* ==================== ID YOURID ==================== */
+/* =========================
+   INSCRIPTION
+========================= */
 
-function generateFakeNumber() {
+async function registerUser() {
 
-    let number;
+    const username = $("registerUsername").value.trim();
+    const password = $("registerPassword").value;
 
-    do {
-
-        number =
-            Math.floor(100 + Math.random() * 900) + " " +
-            Math.floor(100 + Math.random() * 900) + " " +
-            Math.floor(100 + Math.random() * 900);
-
-    } while (
-        number === localStorage.getItem("yourID_id")
-    );
-
-    return number;
-}
-
-/* ==================== INSCRIPTION ==================== */
-
-function createAccount() {
-
-    const username =
-        document.getElementById("username").value.trim();
-
-    const password =
-        document.getElementById("password").value;
-
-    const confirmPassword =
-        document.getElementById("confirmPassword").value;
-
-    if (username.length < 2) {
-        showToast("Entre un pseudo valide.");
+    if (!username || !password) {
+        showToast("Remplis tous les champs.");
         return;
     }
 
     if (password.length < 4) {
-        showToast("Le mot de passe doit avoir au moins 4 caractères.");
+        showToast("Le mot de passe doit contenir au moins 4 caractères.");
         return;
     }
 
-    if (password !== confirmPassword) {
-        showToast("Les mots de passe ne correspondent pas.");
-        return;
-    }
+    try {
 
-    const existingUser =
-        localStorage.getItem("yourID_user");
+        const response = await fetch(`${API}/register`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                username,
+                password
+            })
+        });
 
-    if (existingUser) {
+        const data = await response.json();
 
-        const replace = confirm(
-            "Un compte existe déjà sur cet appareil. Créer un nouveau compte ?"
-        );
-
-        if (!replace) {
+        if (!response.ok || !data.success) {
+            showToast(data.message || "Erreur d'inscription.");
             return;
         }
-    }
 
-    const id = generateFakeNumber();
+        authToken = data.token;
+        currentUser = data.user;
 
-    const user = {
-        username: username,
-        password: password,
-        id: id,
-        photo: null
-    };
+        saveSession();
 
-    saveCurrentUser(user);
-
-    localStorage.setItem("yourID_id", id);
-
-    document.getElementById("generatedNumber")
-        .textContent = id;
-
-    updateUserInterface();
-
-    showToast("Compte créé avec succès !");
-
-    setTimeout(() => {
-        showScreen("homeScreen");
-    }, 500);
-}
-
-/* ==================== CONNEXION ==================== */
-
-function loginUser() {
-
-    const id =
-        document.getElementById("loginId").value.trim();
-
-    const password =
-        document.getElementById("loginPassword").value;
-
-    const user = getCurrentUser();
-
-    if (!user) {
-        showToast("Aucun compte trouvé sur cet appareil.");
-        return;
-    }
-
-    if (
-        id === user.id &&
-        password === user.password
-    ) {
-
-        updateUserInterface();
-
-        displayContacts();
-        displayConversations();
-
-        showToast("Connexion réussie !");
-
-        setTimeout(() => {
-            showScreen("homeScreen");
-        }, 400);
-
-    } else {
-
-        showToast("ID ou mot de passe incorrect.");
-
-    }
-}
-
-/* ==================== MOT DE PASSE ==================== */
-
-function togglePassword(inputId, button) {
-
-    const input =
-        document.getElementById(inputId);
-
-    if (input.type === "password") {
-        input.type = "text";
-        button.textContent = "🙈";
-    } else {
-        input.type = "password";
-        button.textContent = "👁";
-    }
-}
-
-/* ==================== INTERFACE UTILISATEUR ==================== */
-
-function updateUserInterface() {
-
-    const user = getCurrentUser();
-
-    if (!user) {
-        return;
-    }
-
-    const elements = {
-        myId: user.id,
-        headerUsername: user.username,
-        profileUsername: user.username,
-        profileId: user.id
-    };
-
-    Object.keys(elements).forEach(id => {
-
-        const element =
-            document.getElementById(id);
-
-        if (element) {
-            element.textContent = elements[id];
-        }
-
-    });
-
-    updateAvatar();
-}
-
-/* ==================== AVATAR ==================== */
-
-function updateAvatar() {
-
-    const user = getCurrentUser();
-
-    if (!user) return;
-
-    const avatars = [
-        document.getElementById("miniAvatar"),
-        document.getElementById("profileAvatar")
-    ];
-
-    avatars.forEach(avatar => {
-
-        if (!avatar) return;
-
-        if (user.photo) {
-
-            avatar.innerHTML =
-                `<img src="${user.photo}" alt="Photo">`;
-
-        } else {
-
-            avatar.textContent = "👤";
-
-        }
-
-    });
-}
-
-/* ==================== PROFIL ==================== */
-
-function openProfile() {
-
-    updateUserInterface();
-
-    showScreen("profileScreen");
-}
-
-/* ==================== PHOTO ==================== */
-
-function changeProfilePhoto(event) {
-
-    const file =
-        event.target.files[0];
-
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-        showToast("Choisis une image.");
-        return;
-    }
-
-    const reader = new FileReader();
-
-    reader.onload = function(e) {
-
-        const user = getCurrentUser();
-
-        if (!user) return;
-
-        user.photo = e.target.result;
-
-        saveCurrentUser(user);
-
-        updateAvatar();
-
-        showToast("Photo de profil mise à jour.");
-
-    };
-
-    reader.readAsDataURL(file);
-}
-
-/* ==================== COPIER ID ==================== */
-
-function copyMyId() {
-
-    const user = getCurrentUser();
-
-    if (!user) return;
-
-    if (navigator.clipboard) {
-
-        navigator.clipboard
-            .writeText(user.id)
-            .then(() => {
-                showToast("YourID copié !");
-            })
-            .catch(() => {
-                fallbackCopy(user.id);
-            });
-
-    } else {
-
-        fallbackCopy(user.id);
-
-    }
-}
-
-function fallbackCopy(text) {
-
-    const input =
-        document.createElement("textarea");
-
-    input.value = text;
-
-    document.body.appendChild(input);
-
-    input.select();
-
-    document.execCommand("copy");
-
-    input.remove();
-
-    showToast("YourID copié !");
-}
-
-/* ==================== PARTAGER ID ==================== */
-
-function shareMyId() {
-
-    const user = getCurrentUser();
-
-    if (!user) return;
-
-    const text =
-        `Mon YourID est : ${user.id}`;
-
-    if (navigator.share) {
-
-        navigator.share({
-            title: "Mon YourID",
-            text: text
-        });
-
-    } else {
-
-        copyMyId();
-
-        showToast("ID copié. Tu peux maintenant le partager.");
-
-    }
-}
-
-/* ==================== ONGLETS ==================== */
-
-function showTab(tabName, clickedButton = null) {
-
-    document
-        .getElementById("discussions")
-        .classList.add("hidden");
-
-    document
-        .getElementById("contacts")
-        .classList.add("hidden");
-
-    document
-        .getElementById(tabName)
-        .classList.remove("hidden");
-
-    document.querySelectorAll(".tab")
-        .forEach(tab => {
-            tab.classList.remove("active");
-        });
-
-    if (clickedButton) {
-        clickedButton.classList.add("active");
-    } else {
-
-        document.querySelectorAll(".tab")
-            .forEach(tab => {
-
-                if (
-                    tab.textContent
-                        .toLowerCase()
-                        .includes(
-                            tabName === "contacts"
-                                ? "contacts"
-                                : "discussions"
-                        )
-                ) {
-                    tab.classList.add("active");
-                }
-
-            });
-
-    }
-
-    filterCurrentSearch();
-}
-
-function goHome() {
-
-    updateUserInterface();
-
-    displayContacts();
-    displayConversations();
-
-    showScreen("homeScreen");
-
-    showTab("discussions");
-}
-
-function goContacts() {
-
-    updateUserInterface();
-
-    displayContacts();
-
-    showScreen("homeScreen");
-
-    showTab("contacts");
-}
-
-/* ==================== CONTACTS ==================== */
-
-function addContact() {
-
-    const id =
-        document.getElementById("contactId")
-            .value.trim();
-
-    const name =
-        document.getElementById("contactName")
-            .value.trim();
-
-    if (!/^\d{3} \d{3} \d{3}$/.test(id)) {
+        $("registerUsername").value = "";
+        $("registerPassword").value = "";
 
         showToast(
-            "ID invalide. Format : 123 456 789"
+            `Compte créé ! Ton YourID est ${currentUser.your_id}`
         );
 
-        return;
+        openApplication();
+
+    } catch (error) {
+
+        console.error(error);
+
+        showToast(
+            "Impossible de contacter le serveur."
+        );
     }
-
-    if (name.length < 1) {
-        showToast("Entre le nom du contact.");
-        return;
-    }
-
-    const user = getCurrentUser();
-
-    if (user && id === user.id) {
-        showToast("Tu ne peux pas t'ajouter toi-même.");
-        return;
-    }
-
-    const contacts = getContacts();
-
-    if (
-        contacts.some(contact => contact.id === id)
-    ) {
-        showToast("Ce contact existe déjà.");
-        return;
-    }
-
-    contacts.push({
-        id: id,
-        name: name,
-        photo: null,
-        addedAt: Date.now()
-    });
-
-    saveContacts(contacts);
-
-    document.getElementById("contactId").value = "";
-    document.getElementById("contactName").value = "";
-
-    showToast("Contact ajouté !");
-
-    setTimeout(() => {
-        goContacts();
-    }, 400);
 }
 
-function displayContacts() {
+/* =========================
+   CONNEXION
+========================= */
 
-    const list =
-        document.getElementById("contactList");
+async function loginUser() {
 
-    if (!list) return;
+    const yourId = $("loginYourID").value.trim();
+    const password = $("loginPassword").value;
 
-    const contacts = getContacts();
+    if (!yourId || !password) {
+        showToast("Remplis tous les champs.");
+        return;
+    }
+
+    try {
+
+        const response = await fetch(`${API}/login`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                yourId,
+                password
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            showToast(data.message || "Connexion impossible.");
+            return;
+        }
+
+        authToken = data.token;
+        currentUser = data.user;
+
+        saveSession();
+
+        $("loginYourID").value = "";
+        $("loginPassword").value = "";
+
+        openApplication();
+
+    } catch (error) {
+
+        console.error(error);
+
+        showToast(
+            "Impossible de contacter le serveur."
+        );
+    }
+}
+
+/* =========================
+   SESSION
+========================= */
+
+function saveSession() {
+
+    localStorage.setItem(
+        "yourid_token",
+        authToken
+    );
+
+    localStorage.setItem(
+        "yourid_user",
+        JSON.stringify(currentUser)
+    );
+}
+
+function loadSession() {
+
+    const token = localStorage.getItem("yourid_token");
+    const user = localStorage.getItem("yourid_user");
+
+    if (!token || !user) {
+        return false;
+    }
+
+    try {
+
+        authToken = token;
+        currentUser = JSON.parse(user);
+
+        return true;
+
+    } catch (error) {
+
+        console.error(error);
+
+        return false;
+    }
+}
+
+/* =========================
+   OUVRIR L'APPLICATION
+========================= */
+
+async function openApplication() {
+
+    showScreen("appScreen");
+
+    updateProfile();
+
+    connectSocket();
+
+    await loadContacts();
+}
+
+/* =========================
+   PROFIL
+========================= */
+
+function updateProfile() {
+
+    if (!currentUser) return;
+
+    const username =
+        currentUser.username || "Utilisateur";
+
+    const yourId =
+        currentUser.your_id || "---";
+
+    if ($("profileUsername")) {
+        $("profileUsername").textContent = username;
+    }
+
+    if ($("profileYourID")) {
+        $("profileYourID").textContent = yourId;
+    }
+
+    if ($("profileAvatar")) {
+        $("profileAvatar").textContent =
+            getInitial(username);
+    }
+}
+
+/* =========================
+   DÉCONNEXION
+========================= */
+
+function logoutUser() {
+
+    if (socket) {
+        socket.disconnect();
+        socket = null;
+    }
+
+    localStorage.removeItem("yourid_token");
+    localStorage.removeItem("yourid_user");
+
+    currentUser = null;
+    authToken = null;
+    contacts = [];
+    currentContact = null;
+
+    closeChat();
+
+    showScreen("welcomeScreen");
+
+    showToast("Tu es déconnecté.");
+}
+
+/* =========================
+   API AUTH
+========================= */
+
+function authHeaders() {
+
+    return {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${authToken}`
+    };
+}
+
+/* =========================
+   CONTACTS
+========================= */
+
+async function loadContacts() {
+
+    if (!authToken) return;
+
+    try {
+
+        const response = await fetch(
+            `${API}/contacts`,
+            {
+                headers: {
+                    "Authorization": `Bearer ${authToken}`
+                }
+            }
+        );
+
+        if (response.status === 401) {
+            logoutUser();
+            return;
+        }
+
+        const data = await response.json();
+
+        if (!data.success) {
+            return;
+        }
+
+        contacts = data.contacts || [];
+
+        renderContacts();
+        renderConversations();
+
+    } catch (error) {
+
+        console.error(
+            "Erreur chargement contacts :",
+            error
+        );
+    }
+}
+
+function renderContacts() {
+
+    const container = $("contactsList");
+
+    if (!container) return;
 
     if (contacts.length === 0) {
 
-        list.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-icon">👥</div>
-                <h3>Aucun contact</h3>
-                <p>Ajoute ton premier contact.</p>
+        container.innerHTML = `
+            <div class="empty">
+                <div class="emoji">👥</div>
+                <p>Aucun contact.</p>
             </div>
         `;
 
         return;
     }
 
-    list.innerHTML = "";
+    container.innerHTML = contacts.map(contact => {
 
-    contacts.forEach(contact => {
+        return `
+            <div class="contact-card"
+                 onclick="openChat('${contact.your_id}')">
 
-        const div =
-            document.createElement("div");
+                <div class="avatar">
+                    ${getInitial(contact.username)}
+                </div>
 
-        div.className = "contact";
+                <div class="contact-info">
+                    <strong>
+                        ${escapeHTML(contact.username)}
+                    </strong>
 
-        div.dataset.search =
-            `${contact.name} ${contact.id}`.toLowerCase();
+                    <small>
+                        ${escapeHTML(contact.your_id)}
+                    </small>
+                </div>
 
-        div.onclick = () => openChat(contact);
+                <button
+                    class="icon-btn"
+                    onclick="event.stopPropagation(); openChat('${contact.your_id}')">
+                    💬
+                </button>
 
-        div.innerHTML = `
-            <div class="contact-avatar">
-                ${contact.photo
-                    ? `<img src="${contact.photo}" alt="">`
-                    : "👤"}
-            </div>
-
-            <div class="contact-info">
-                <strong>${escapeHTML(contact.name)}</strong>
-                <small>${escapeHTML(contact.id)}</small>
             </div>
         `;
 
-        list.appendChild(div);
-
-    });
+    }).join("");
 }
 
-/* ==================== CHAT ==================== */
+/* =========================
+   AJOUT CONTACT
+========================= */
 
-function getMessageKey(contactId) {
+function openAddContactModal() {
 
-    const user = getCurrentUser();
+    $("contactYourIDInput").value = "";
 
-    const myId =
-        user ? user.id : "unknown";
-
-    return `yourID_messages_${myId}_${contactId}`;
+    $("addContactModal")
+        .classList.add("active");
 }
 
-function openChat(contact) {
+function closeAddContactModal() {
+
+    $("addContactModal")
+        .classList.remove("active");
+}
+
+async function addContact() {
+
+    const yourId =
+        $("contactYourIDInput")
+            .value
+            .trim();
+
+    if (!yourId) {
+        showToast("Entre un YourID.");
+        return;
+    }
+
+    try {
+
+        const response = await fetch(
+            `${API}/contacts`,
+            {
+                method: "POST",
+                headers: authHeaders(),
+                body: JSON.stringify({
+                    yourId
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+
+            showToast(
+                data.message ||
+                "Impossible d'ajouter ce contact."
+            );
+
+            return;
+        }
+
+        closeAddContactModal();
+
+        showToast(
+            `${data.contact.username} a été ajouté.`
+        );
+
+        await loadContacts();
+
+    } catch (error) {
+
+        console.error(error);
+
+        showToast(
+            "Erreur de connexion au serveur."
+        );
+    }
+}
+
+/* =========================
+   DISCUSSIONS
+========================= */
+
+function renderConversations() {
+
+    const container =
+        $("conversationsList");
+
+    if (!container) return;
+
+    if (contacts.length === 0) {
+
+        container.innerHTML = `
+            <div class="empty">
+                <div class="emoji">💬</div>
+                <p>Aucune conversation pour le moment.</p>
+                <small>
+                    Ajoute un contact pour commencer.
+                </small>
+            </div>
+        `;
+
+        return;
+    }
+
+    container.innerHTML = contacts.map(contact => {
+
+        return `
+            <div
+                class="conversation-item"
+                data-name="${escapeHTML(contact.username.toLowerCase())}"
+                onclick="openChat('${contact.your_id}')"
+            >
+
+                <div class="avatar">
+                    ${getInitial(contact.username)}
+                </div>
+
+                <div class="conversation-info">
+
+                    <strong>
+                        ${escapeHTML(contact.username)}
+                    </strong>
+
+                    <span>
+                        ${escapeHTML(contact.your_id)}
+                    </span>
+
+                </div>
+
+            </div>
+        `;
+
+    }).join("");
+}
+
+function filterConversations() {
+
+    const input =
+        $("conversationSearch");
+
+    if (!input) return;
+
+    const value =
+        input.value
+            .trim()
+            .toLowerCase();
+
+    document
+        .querySelectorAll(".conversation-item")
+        .forEach(item => {
+
+            const name =
+                item.dataset.name || "";
+
+            item.style.display =
+                name.includes(value)
+                    ? "flex"
+                    : "none";
+        });
+}
+
+/* =========================
+   CHAT
+========================= */
+
+async function openChat(yourId) {
+
+    const contact =
+        contacts.find(
+            c => c.your_id === yourId
+        );
+
+    if (!contact) {
+
+        showToast(
+            "Contact introuvable."
+        );
+
+        return;
+    }
 
     currentContact = contact;
 
-    document.getElementById("chatName")
-        .textContent = contact.name;
+    $("chatContactName")
+        .textContent = contact.username;
 
-    document.getElementById("chatId")
-        .textContent = contact.id;
+    $("chatAvatar")
+        .textContent =
+        getInitial(contact.username);
 
-    const avatar =
-        document.getElementById("chatAvatar");
+    $("chatOnlineStatus")
+        .textContent = "Connexion...";
 
-    avatar.innerHTML =
-        contact.photo
-            ? `<img src="${contact.photo}" alt="">`
-            : "👤";
+    $("chatMessages").innerHTML = `
+        <div class="empty">
+            Chargement des messages...
+        </div>
+    `;
 
-    loadMessages(contact.id);
+    showScreen("chatPage");
 
-    showScreen("chatScreen");
-
-    setTimeout(() => {
-
-        document
-            .getElementById("messageText")
-            .focus();
-
-    }, 100);
+    await loadMessages(yourId);
 }
 
-function sendMessage() {
+/* =========================
+   FERMER CHAT
+========================= */
 
-    if (!currentContact) {
-        return;
+function closeChat() {
+
+    currentContact = null;
+
+    const chat =
+        $("chatPage");
+
+    if (chat) {
+        chat.classList.remove("active");
     }
 
-    const input =
-        document.getElementById("messageText");
+    const app =
+        $("appScreen");
 
-    const text =
-        input.value.trim();
-
-    if (!text) {
-        return;
+    if (app) {
+        app.classList.add("active");
     }
-
-    const key =
-        getMessageKey(currentContact.id);
-
-    const messages =
-        JSON.parse(
-            localStorage.getItem(key)
-        ) || [];
-
-    messages.push({
-        text: text,
-        type: "sent",
-        time: new Date().toISOString()
-    });
-
-    localStorage.setItem(
-        key,
-        JSON.stringify(messages)
-    );
-
-    input.value = "";
-
-    loadMessages(currentContact.id);
-
-    displayConversations();
 }
 
-function loadMessages(contactId) {
+/* =========================
+   HISTORIQUE
+========================= */
+
+async function loadMessages(yourId) {
+
+    try {
+
+        const response = await fetch(
+            `${API}/messages/${encodeURIComponent(yourId)}`,
+            {
+                headers: {
+                    "Authorization":
+                        `Bearer ${authToken}`
+                }
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+
+            showToast(
+                data.message ||
+                "Impossible de charger les messages."
+            );
+
+            return;
+        }
+
+        renderMessages(
+            data.messages || []
+        );
+
+        markMessagesRead(yourId);
+
+    } catch (error) {
+
+        console.error(error);
+
+        showToast(
+            "Erreur de chargement des messages."
+        );
+    }
+}
+
+/* =========================
+   AFFICHER MESSAGES
+========================= */
+
+function renderMessages(messages) {
 
     const container =
-        document.getElementById("messages");
+        $("chatMessages");
 
-    const key =
-        getMessageKey(contactId);
-
-    const messages =
-        JSON.parse(
-            localStorage.getItem(key)
-        ) || [];
-
-    container.innerHTML = "";
+    if (!container) return;
 
     if (messages.length === 0) {
 
         container.innerHTML = `
-            <div class="empty-state" style="margin-top:100px">
-                <div class="empty-icon">👋</div>
-                <h3>Nouvelle discussion</h3>
-                <p>Envoie ton premier message.</p>
+            <div class="empty">
+                <div class="emoji">👋</div>
+                <p>Aucun message.</p>
+                <small>
+                    Envoie le premier message.
+                </small>
             </div>
         `;
 
         return;
     }
 
-    messages.forEach(message => {
+    container.innerHTML = messages.map(message => {
 
-        const div =
-            document.createElement("div");
+        const sent =
+            message.sender_your_id ===
+            currentUser.your_id;
 
-        div.className =
-            `message ${message.type}`;
+        return `
+            <div class="message ${sent ? "sent" : "received"}">
 
-        const time =
-            new Date(message.time)
-                .toLocaleTimeString(
-                    "fr-FR",
-                    {
-                        hour: "2-digit",
-                        minute: "2-digit"
-                    }
-                );
+                ${escapeHTML(message.content)}
 
-        div.innerHTML = `
-            ${escapeHTML(message.text)}
-            <span class="message-time">${time}</span>
-        `;
-
-        container.appendChild(div);
-
-    });
-
-    container.scrollTop =
-        container.scrollHeight;
-}
-
-/* ==================== CONVERSATIONS ==================== */
-
-function displayConversations() {
-
-    const container =
-        document.getElementById("conversations");
-
-    if (!container) return;
-
-    const contacts = getContacts();
-
-    const conversations = [];
-
-    contacts.forEach(contact => {
-
-        const key =
-            getMessageKey(contact.id);
-
-        const messages =
-            JSON.parse(
-                localStorage.getItem(key)
-            ) || [];
-
-        if (messages.length > 0) {
-
-            const last =
-                messages[messages.length - 1];
-
-            conversations.push({
-                contact: contact,
-                last: last
-            });
-
-        }
-
-    });
-
-    if (conversations.length === 0) {
-
-        container.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-icon">💬</div>
-                <h3>Aucune discussion</h3>
-                <p>
-                    Ajoute un contact pour<br>
-                    commencer à discuter.
-                </p>
-            </div>
-        `;
-
-        return;
-    }
-
-    container.innerHTML = "";
-
-    conversations
-        .sort(
-            (a, b) =>
-                new Date(b.last.time) -
-                new Date(a.last.time)
-        )
-        .forEach(item => {
-
-            const div =
-                document.createElement("div");
-
-            div.className = "conversation";
-
-            div.dataset.search =
-                `${item.contact.name} ${item.contact.id} ${item.last.text}`
-                    .toLowerCase();
-
-            div.onclick = () =>
-                openChat(item.contact);
-
-            const time =
-                new Date(item.last.time)
-                    .toLocaleTimeString(
-                        "fr-FR",
-                        {
-                            hour: "2-digit",
-                            minute: "2-digit"
-                        }
-                    );
-
-            div.innerHTML = `
-                <div class="conversation-avatar">
-                    ${item.contact.photo
-                        ? `<img src="${item.contact.photo}" alt="">`
-                        : "👤"}
-                </div>
-
-                <div class="conversation-info">
-                    <strong>${escapeHTML(item.contact.name)}</strong>
-                    <small>${escapeHTML(item.last.text)}</small>
-                </div>
-
-                <span class="conversation-time">
-                    ${time}
+                <span class="message-time">
+                    ${formatTime(message.created_at)}
+                    ${sent ? " ✓" : ""}
                 </span>
-            `;
 
-            container.appendChild(div);
+            </div>
+        `;
 
-        });
+    }).join("");
+
+    scrollChatToBottom();
 }
 
-/* ==================== ENTRÉE MESSAGE ==================== */
+/* =========================
+   ENVOYER MESSAGE
+========================= */
+
+function sendMessage() {
+
+    if (!socket) {
+
+        showToast(
+            "Connexion au serveur en cours..."
+        );
+
+        return;
+    }
+
+    if (!currentContact) {
+
+        showToast(
+            "Aucun contact sélectionné."
+        );
+
+        return;
+    }
+
+    const input =
+        $("messageInput");
+
+    const content =
+        input.value.trim();
+
+    if (!content) return;
+
+    socket.emit(
+        "send-message",
+        {
+            to: currentContact.your_id,
+            content
+        }
+    );
+
+    input.value = "";
+
+    stopTyping();
+}
+
+/* =========================
+   TOUCHE ENTRÉE
+========================= */
 
 function handleMessageKey(event) {
 
     if (event.key === "Enter") {
+
+        event.preventDefault();
+
         sendMessage();
     }
 }
 
-/* ==================== RECHERCHE ==================== */
+/* =========================
+   TYPING
+========================= */
 
-function filterCurrentSearch() {
+function handleTyping() {
 
-    const search =
-        document.getElementById("searchInput");
+    if (!socket || !currentContact) {
+        return;
+    }
 
-    if (!search) return;
-
-    const value =
-        search.value.trim().toLowerCase();
-
-    document.querySelectorAll(
-        ".contact, .conversation"
-    ).forEach(item => {
-
-        const text =
-            item.dataset.search ||
-            item.textContent.toLowerCase();
-
-        item.style.display =
-            text.includes(value)
-                ? "flex"
-                : "none";
-
-    });
-}
-
-/* ==================== APPELS ==================== */
-
-function openCalls() {
-
-    showScreen("callsScreen");
-
-    displayCalls();
-}
-
-function fakeCall() {
-
-    if (!currentContact) return;
-
-    const calls =
-        JSON.parse(
-            localStorage.getItem("yourID_calls")
-        ) || [];
-
-    calls.push({
-        name: currentContact.name,
-        id: currentContact.id,
-        type: "Appel sortant",
-        time: new Date().toISOString()
+    socket.emit("typing", {
+        to: currentContact.your_id,
+        typing: true
     });
 
-    localStorage.setItem(
-        "yourID_calls",
-        JSON.stringify(calls)
-    );
+    clearTimeout(typingTimeout);
 
-    showToast(
-        `Appel vers ${currentContact.name}...`
+    typingTimeout = setTimeout(
+        stopTyping,
+        1200
     );
 }
 
-function displayCalls() {
+function stopTyping() {
+
+    if (!socket || !currentContact) {
+        return;
+    }
+
+    socket.emit("typing", {
+        to: currentContact.your_id,
+        typing: false
+    });
+}
+
+/* =========================
+   SCROLL CHAT
+========================= */
+
+function scrollChatToBottom() {
 
     const container =
-        document.getElementById("callList");
+        $("chatMessages");
 
     if (!container) return;
 
-    const calls =
-        JSON.parse(
-            localStorage.getItem("yourID_calls")
-        ) || [];
-
-    if (calls.length === 0) {
-
-        container.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-icon">📞</div>
-                <h3>Aucun appel</h3>
-                <p>Ton historique apparaîtra ici.</p>
-            </div>
-        `;
-
-        return;
-    }
-
-    container.innerHTML = "";
-
-    calls
-        .slice()
-        .reverse()
-        .forEach(call => {
-
-            const div =
-                document.createElement("div");
-
-            div.className = "contact";
-
-            const date =
-                new Date(call.time)
-                    .toLocaleString("fr-FR");
-
-            div.innerHTML = `
-                <div class="contact-avatar">
-                    📞
-                </div>
-
-                <div class="contact-info">
-                    <strong>${escapeHTML(call.name)}</strong>
-                    <small>${call.type} • ${date}</small>
-                </div>
-            `;
-
-            container.appendChild(div);
-
-        });
-}
-
-/* ==================== MENU CHAT ==================== */
-
-function chatMenu() {
-
-    if (!currentContact) return;
-
-    const remove =
-        confirm(
-            `Supprimer ${currentContact.name} de tes contacts ?`
-        );
-
-    if (!remove) return;
-
-    let contacts = getContacts();
-
-    contacts =
-        contacts.filter(
-            contact =>
-                contact.id !== currentContact.id
-        );
-
-    saveContacts(contacts);
-
-    localStorage.removeItem(
-        getMessageKey(currentContact.id)
-    );
-
-    currentContact = null;
-
-    showToast("Contact supprimé.");
-
-    setTimeout(goHome, 400);
-}
-
-/* ==================== PARAMÈTRES ==================== */
-
-function openSettings() {
-
-    const toggle =
-        document.getElementById("darkModeToggle");
-
-    toggle.checked =
-        document.body.classList.contains("dark");
-
-    showScreen("settingsScreen");
-}
-
-function toggleDarkMode() {
-
-    const toggle =
-        document.getElementById("darkModeToggle");
-
-    document.body.classList.toggle(
-        "dark",
-        toggle.checked
-    );
-
-    localStorage.setItem(
-        "yourID_dark",
-        toggle.checked
-    );
-}
-
-function loadDarkMode() {
-
-    const dark =
-        localStorage.getItem("yourID_dark")
-        === "true";
-
-    document.body.classList.toggle(
-        "dark",
-        dark
-    );
-
-    const toggle =
-        document.getElementById("darkModeToggle");
-
-    if (toggle) {
-        toggle.checked = dark;
-    }
-}
-
-/* ==================== DÉCONNEXION ==================== */
-
-function logout() {
-
-    const confirmation =
-        confirm("Voulez-vous vraiment vous déconnecter ?");
-
-    if (!confirmation) return;
-
-    localStorage.removeItem(
-        "yourID_logged"
-    );
-
-    showToast("Déconnexion réussie.");
-
     setTimeout(() => {
-        showScreen("welcomeScreen");
-    }, 500);
+
+        container.scrollTop =
+            container.scrollHeight;
+
+    }, 50);
 }
 
-/* ==================== APPEL ==================== */
+/* =========================
+   SOCKET.IO
+========================= */
 
-function fakeCallFromChat() {
+function connectSocket() {
 
-    fakeCall();
-}
+    if (!currentUser) return;
 
-/* ==================== SÉCURITÉ HTML ==================== */
+    if (socket) {
 
-function escapeHTML(text) {
-
-    const div =
-        document.createElement("div");
-
-    div.textContent = text;
-
-    return div.innerHTML;
-}
-
-/* ==================== INITIALISATION ==================== */
-
-document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-
-        loadDarkMode();
-
-        const user =
-            getCurrentUser();
-
-        if (user) {
-
-            updateUserInterface();
-
-            displayContacts();
-            displayConversations();
-
+        if (socket.connected) {
+            return;
         }
 
-        const search =
-            document.getElementById("searchInput");
-
-        if (search) {
-
-            search.addEventListener(
-                "input",
-                filterCurrentSearch
-            );
-
-        }
-
-    }
-);
-/* =====================================================
-   YOURID V2 — CONNEXION SERVEUR + APPELS WEBRTC
-   ===================================================== */
-
-let yourIDSocket = null;
-let yourIDPeer = null;
-let yourIDLocalStream = null;
-let yourIDCurrentCallWith = null;
-let yourIDPendingOffer = null;
-
-/* ==================== CHARGER SOCKET.IO ==================== */
-
-function loadYourIDSocketIO() {
-
-    if (window.io) {
-        connectYourIDServer();
-        return;
-    }
-
-   const script = document.createElement("script");
-    scrip.src = "https://cdn.socket.io/4.8.1/socket.io.min.js";
-
-    script.onload = () => {
-        connectYourIDServer();
-    };
-
-    script.onerror = () => {
-        console.error("Impossible de charger Socket.IO.");
-        showToast("Impossible de connecter YourID au serveur.");
-    };
-
-    document.head.appendChild(script);
-}
-
-/* ==================== CONNEXION SERVEUR ==================== */
-
-function connectYourIDServer() {
-
-    const user = getCurrentUser();
-
-    if (!user) return;
-
-    yourIDSocket = io("http://localhost:3000");
-
-    yourIDSocket.on("connect", () => {
-
-        console.log("YourID connecté au serveur :", yourIDSocket.id);
-
-        yourIDSocket.emit("register", user.id);
-
-        showToast("YourID connecté au serveur 🚀");
-    });
-
-    yourIDSocket.on("disconnect", () => {
-
-        console.log("YourID déconnecté du serveur.");
-
-    });
-
-    /* APPEL ENTRANT */
-
-    yourIDSocket.on("incoming-call", async (data) => {
-
-        yourIDPendingOffer = data.offer;
-
-        showIncomingCall(data.from);
-
-    });
-
-    /* APPEL ACCEPTÉ */
-
-    yourIDSocket.on("call-answered", async (data) => {
-
-        if (!yourIDPeer) return;
-
-        await yourIDPeer.setRemoteDescription(
-            new RTCSessionDescription(data.answer)
-        );
-
-        console.log("Appel accepté.");
-    });
-
-    /* ICE */
-
-    yourIDSocket.on("ice-candidate", async (data) => {
-
-        if (!yourIDPeer) return;
-
-        try {
-
-            await yourIDPeer.addIceCandidate(
-                new RTCIceCandidate(data.candidate)
-            );
-
-        } catch (error) {
-
-            console.error("Erreur ICE :", error);
-
-        }
-
-    });
-
-    /* APPEL REFUSÉ */
-
-    yourIDSocket.on("call-rejected", () => {
-
-        showToast("Appel refusé.");
-
-        endYourIDCall(false);
-
-    });
-
-    /* APPEL TERMINÉ */
-
-    yourIDSocket.on("call-ended", () => {
-
-        showToast("Appel terminé.");
-
-        endYourIDCall(false);
-
-    });
-
-}
-
-/* ==================== INTERFACE APPEL ==================== */
-
-function createCallInterface() {
-
-    if (document.getElementById("yourIDCallWindow")) {
-        return;
-    }
-
-    const box = document.createElement("div");
-
-    box.id = "yourIDCallWindow";
-
-    box.innerHTML = `
-        <div style="
-            position:fixed;
-            inset:0;
-            z-index:99999;
-            background:#111;
-            display:flex;
-            flex-direction:column;
-            align-items:center;
-            justify-content:center;
-            color:white;
-            padding:20px;
-        ">
-
-            <h2 id="yourIDCallTitle">Appel YourID</h2>
-
-            <video
-                id="yourIDRemoteVideo"
-                autoplay
-                playsinline
-                style="
-                    width:90%;
-                    max-width:500px;
-                    max-height:55vh;
-                    background:#222;
-                    border-radius:18px;
-                    object-fit:cover;
-                ">
-            </video>
-
-            <video
-                id="yourIDLocalVideo"
-                autoplay
-                muted
-                playsinline
-                style="
-                    width:120px;
-                    height:160px;
-                    position:absolute;
-                    right:20px;
-                    top:80px;
-                    background:#333;
-                    border-radius:12px;
-                    object-fit:cover;
-                ">
-            </video>
-
-            <div style="
-                display:flex;
-                gap:15px;
-                margin-top:25px;
-            ">
-
-                <button
-                    onclick="toggleYourIDMicrophone()"
-                    style="
-                        padding:15px 20px;
-                        border:0;
-                        border-radius:50px;
-                        font-size:20px;
-                    ">
-                    🎤
-                </button>
-
-                <button
-                    onclick="endYourIDCall(true)"
-                    style="
-                        padding:15px 25px;
-                        border:0;
-                        border-radius:50px;
-                        background:#e53935;
-                        color:white;
-                        font-size:20px;
-                    ">
-                    📞 Raccrocher
-                </button>
-
-            </div>
-
-        </div>
-    `;
-
-    document.body.appendChild(box);
-}
-
-/* ==================== APPEL SORTANT ==================== */
-
-async function startYourIDCall(contact) {
-
-    if (!yourIDSocket || !yourIDSocket.connected) {
-
-        showToast("YourID n'est pas connecté au serveur.");
+        socket.connect();
 
         return;
     }
-
-    yourIDCurrentCallWith = contact;
-
-    createCallInterface();
-
-    document.getElementById("yourIDCallTitle").textContent =
-        `Appel vers ${contact.name}`;
 
     try {
 
-        yourIDLocalStream =
-            await navigator.mediaDevices.getUserMedia({
-                audio: true,
-                video: true
-            });
+        socket = io();
 
-        document.getElementById("yourIDLocalVideo").srcObject =
-            yourIDLocalStream;
+        socket.on("connect", () => {
 
-        yourIDPeer = createYourIDPeer(contact.id);
-
-        yourIDLocalStream.getTracks().forEach(track => {
-
-            yourIDPeer.addTrack(
-                track,
-                yourIDLocalStream
+            console.log(
+                "🟢 YourID connecté au serveur",
+                socket.id
             );
 
+            socket.emit(
+                "register-socket",
+                {
+                    yourId:
+                        currentUser.your_id
+                }
+            );
         });
 
-        const offer =
-            await yourIDPeer.createOffer();
+        socket.on("connect_error", error => {
 
-        await yourIDPeer.setLocalDescription(offer);
+            console.error(
+                "Erreur Socket.IO :",
+                error
+            );
 
-        yourIDSocket.emit("call-user", {
-
-            to: contact.id,
-            offer: offer
-
+            showToast(
+                "Connexion temps réel impossible."
+            );
         });
 
-        showToast(`Appel vers ${contact.name}...`);
+        /* =========================
+           MESSAGE REÇU
+        ========================= */
+
+        socket.on(
+            "message-received",
+            message => {
+
+                console.log(
+                    "📩 Message reçu",
+                    message
+                );
+
+                if (
+                    currentContact &&
+                    message.from ===
+                    currentContact.your_id
+                ) {
+
+                    addMessageToChat(
+                        message,
+                        false
+                    );
+
+                    markMessagesRead(
+                        currentContact.your_id
+                    );
+
+                } else {
+
+                    showToast(
+                        `Nouveau message de ${message.from}`
+                    );
+                }
+            }
+        );
+
+        /* =========================
+           MESSAGE ENVOYÉ
+        ========================= */
+
+        socket.on(
+            "message-sent",
+            message => {
+
+                if (
+                    currentContact &&
+                    message.to ===
+                    currentContact.your_id
+                ) {
+
+                    addMessageToChat(
+                        message,
+                        true
+                    );
+                }
+            }
+        );
+
+        /* =========================
+           ERREUR MESSAGE
+        ========================= */
+
+        socket.on(
+            "message-error",
+            data => {
+
+                showToast(
+                    data.message ||
+                    "Erreur d'envoi."
+                );
+            }
+        );
+
+        /* =========================
+           TYPING
+        ========================= */
+
+        socket.on(
+            "typing",
+            data => {
+
+                if (
+                    !currentContact ||
+                    data.from !==
+                    currentContact.your_id
+                ) {
+                    return;
+                }
+
+                const indicator =
+                    $("typingIndicator");
+
+                if (!indicator) return;
+
+                indicator.textContent =
+                    data.typing
+                        ? `${currentContact.username} écrit...`
+                        : "";
+            }
+        );
+
+        /* =========================
+           LU
+        ========================= */
+
+        socket.on(
+            "messages-read",
+            data => {
+
+                console.log(
+                    "Messages lus par",
+                    data.by
+                );
+            }
+        );
+
+        /* =========================
+           ONLINE
+        ========================= */
+
+        socket.on(
+            "user-online",
+            data => {
+
+                updateContactStatus(
+                    data.yourId,
+                    true
+                );
+            }
+        );
+
+        /* =========================
+           OFFLINE
+        ========================= */
+
+        socket.on(
+            "user-offline",
+            data => {
+
+                updateContactStatus(
+                    data.yourId,
+                    false
+                );
+            }
+        );
+
+        /* =========================
+           APPEL ENTRANT
+        ========================= */
+
+        socket.on(
+            "incoming-call",
+            async data => {
+
+                console.log(
+                    "📞 Appel entrant",
+                    data
+                );
+
+                pendingOffer =
+                    data.offer;
+
+                pendingCaller =
+                    data.from;
+
+                currentCallType =
+                    data.callType || "audio";
+
+                const caller =
+                    contacts.find(
+                        c =>
+                        c.your_id ===
+                        data.from
+                    );
+
+                const name =
+                    caller
+                        ? caller.username
+                        : data.from;
+
+                $("incomingCallTitle")
+                    .textContent =
+                    currentCallType === "video"
+                        ? "🎥 Appel vidéo entrant"
+                        : "📞 Appel audio entrant";
+
+                $("incomingCallFrom")
+                    .textContent =
+                    `${name} t'appelle`;
+
+                $("incomingCallAvatar")
+                    .textContent =
+                    caller
+                        ? getInitial(caller.username)
+                        : "📞";
+
+                $("incomingCallModal")
+                    .classList.add("active");
+            }
+        );
+
+        /* =========================
+           APPEL ACCEPTÉ
+        ========================= */
+
+        socket.on(
+            "call-answered",
+            async data => {
+
+                if (!peerConnection) {
+                    return;
+                }
+
+                try {
+
+                    await peerConnection
+                        .setRemoteDescription(
+                            new RTCSessionDescription(
+                                data.answer
+                            )
+                        );
+
+                    await flushPendingIce();
+
+                    updateCallStatus(
+                        "Appel connecté"
+                    );
+
+                } catch (error) {
+
+                    console.error(
+                        "Erreur réponse appel :",
+                        error
+                    );
+
+                    showToast(
+                        "Impossible de connecter l'appel."
+                    );
+                }
+            }
+        );
+
+        /* =========================
+           ICE
+        ========================= */
+
+        socket.on(
+            "ice-candidate",
+            async data => {
+
+                if (!data.candidate) {
+                    return;
+                }
+
+                if (
+                    peerConnection &&
+                    peerConnection.remoteDescription
+                ) {
+
+                    try {
+
+                        await peerConnection
+                            .addIceCandidate(
+                                new RTCIceCandidate(
+                                    data.candidate
+                                )
+                            );
+
+                    } catch (error) {
+
+                        console.error(
+                            "Erreur ICE :",
+                            error
+                        );
+                    }
+
+                } else {
+
+                    pendingIceCandidates
+                        .push(data.candidate);
+                }
+            }
+        );
+
+        /* =========================
+           APPEL REFUSÉ
+        ========================= */
+
+        socket.on(
+            "call-rejected",
+            () => {
+
+                showToast(
+                    "Appel refusé."
+                );
+
+                closeCallScreen();
+            }
+        );
+
+        /* =========================
+           APPEL TERMINÉ
+        ========================= */
+
+        socket.on(
+            "call-ended",
+            () => {
+
+                showToast(
+                    "Appel terminé."
+                );
+
+                closeCallScreen();
+            }
+        );
 
     } catch (error) {
 
-        console.error(error);
-
-        showToast(
-            "Impossible d'accéder à la caméra ou au microphone."
+        console.error(
+            "Socket.IO indisponible :",
+            error
         );
-
-        endYourIDCall(false);
     }
 }
 
-/* ==================== CONNEXION WEBRTC ==================== */
+/* =========================
+   AJOUT MESSAGE DIRECT
+========================= */
 
-function createYourIDPeer(remoteID) {
+function addMessageToChat(
+    message,
+    sent
+) {
 
-    const peer =
-        new RTCPeerConnection({
+    const container =
+        $("chatMessages");
 
-            iceServers: [
-                {
-                    urls: "stun:stun.l.google.com:19302"
-                }
-            ]
+    if (!container) return;
 
-        });
+    const empty =
+        container.querySelector(".empty");
 
-    peer.onicecandidate = event => {
-
-        if (event.candidate) {
-
-            yourIDSocket.emit("ice-candidate", {
-
-                to: remoteID,
-                candidate: event.candidate
-
-            });
-
-        }
-
-    };
-
-    peer.ontrack = event => {
-
-        const video =
-            document.getElementById(
-                "yourIDRemoteVideo"
-            );
-
-        if (video) {
-
-            video.srcObject =
-                event.streams[0];
-
-        }
-
-    };
-
-    return peer;
-}
-
-/* ==================== APPEL ENTRANT ==================== */
-
-function showIncomingCall(from) {
-
-    const existing =
-        document.getElementById(
-            "yourIDIncomingCall"
-        );
-
-    if (existing) {
-        existing.remove();
+    if (empty) {
+        empty.remove();
     }
 
-    const box =
+    const element =
         document.createElement("div");
 
-    box.id =
-        "yourIDIncomingCall";
+    element.className =
+        `message ${sent ? "sent" : "received"}`;
 
-    box.innerHTML = `
+    element.innerHTML = `
+        ${escapeHTML(message.content)}
 
-        <div style="
-            position:fixed;
-            inset:0;
-            z-index:100000;
-            background:rgba(0,0,0,.85);
-            display:flex;
-            align-items:center;
-            justify-content:center;
-        ">
-
-            <div style="
-                background:white;
-                color:#111;
-                padding:30px;
-                border-radius:25px;
-                text-align:center;
-                width:85%;
-                max-width:350px;
-            ">
-
-                <div style="
-                    font-size:60px;
-                    margin-bottom:15px;
-                ">
-                    📞
-                </div>
-
-                <h2>Appel entrant</h2>
-
-                <p>
-                    Appel de<br>
-                    <strong>${escapeHTML(from)}</strong>
-                </p>
-
-                <div style="
-                    display:flex;
-                    justify-content:center;
-                    gap:15px;
-                    margin-top:25px;
-                ">
-
-                    <button
-                        onclick="acceptYourIDCall('${from}')"
-                        style="
-                            padding:15px 25px;
-                            border:0;
-                            border-radius:50px;
-                            background:#22c55e;
-                            color:white;
-                            font-size:18px;
-                        ">
-                        ✓ Accepter
-                    </button>
-
-                    <button
-                        onclick="rejectYourIDCall('${from}')"
-                        style="
-                            padding:15px 25px;
-                            border:0;
-                            border-radius:50px;
-                            background:#e53935;
-                            color:white;
-                            font-size:18px;
-                        ">
-                        ✕ Refuser
-                    </button>
-
-                </div>
-
-            </div>
-
-        </div>
+        <span class="message-time">
+            ${formatTime(message.created_at)}
+            ${sent ? " ✓" : ""}
+        </span>
     `;
 
-    document.body.appendChild(box);
+    container.appendChild(element);
+
+    scrollChatToBottom();
 }
 
-/* ==================== ACCEPTER ==================== */
+/* =========================
+   STATUT CONTACT
+========================= */
 
-async function acceptYourIDCall(from) {
+function updateContactStatus(
+    yourId,
+    online
+) {
 
-    const box =
-        document.getElementById(
-            "yourIDIncomingCall"
-        );
+    if (
+        currentContact &&
+        currentContact.your_id === yourId
+    ) {
 
-    if (box) {
-        box.remove();
+        $("chatOnlineStatus")
+            .textContent =
+            online
+                ? "🟢 En ligne"
+                : "Hors ligne";
+    }
+}
+
+/* =========================
+   MESSAGE LU
+========================= */
+
+function markMessagesRead(yourId) {
+
+    if (!socket || !yourId) {
+        return;
     }
 
-    createCallInterface();
+    socket.emit(
+        "mark-read",
+        {
+            from: yourId
+        }
+    );
+}
 
-    document.getElementById(
-        "yourIDCallTitle"
-    ).textContent =
-        `Appel avec ${from}`;
+/* =====================================================
+   WEBRTC
+===================================================== */
 
-    yourIDCurrentCallWith = {
-        id: from,
-        name: from
-    };
+/* =========================
+   CONFIGURATION WEBRTC
+========================= */
 
-    try {
+const rtcConfiguration = {
 
-        yourIDLocalStream =
-            await navigator.mediaDevices.getUserMedia({
-                audio: true,
-                video: true
-            });
+    iceServers: [
+        {
+            urls: "stun:stun.l.google.com:19302"
+        }
+    ]
+};
 
-        document.getElementById(
-            "yourIDLocalVideo"
-        ).srcObject =
-            yourIDLocalStream;
+/* =========================
+   CRÉER PEER CONNECTION
+========================= */
 
-        yourIDPeer =
-            createYourIDPeer(from);
+function createPeerConnection(remoteID) {
 
-        yourIDLocalStream
+    if (peerConnection) {
+
+        try {
+            peerConnection.close();
+        } catch (error) {}
+    }
+
+    pendingIceCandidates = [];
+
+    peerConnection =
+        new RTCPeerConnection(
+            rtcConfiguration
+        );
+
+    /* =========================
+       STREAM LOCAL
+    ========================= */
+
+    if (localStream) {
+
+        localStream
             .getTracks()
             .forEach(track => {
 
-                yourIDPeer.addTrack(
+                peerConnection.addTrack(
                     track,
-                    yourIDLocalStream
+                    localStream
+                );
+            });
+    }
+
+    /* =========================
+       STREAM DISTANT
+    ========================= */
+
+    peerConnection.ontrack =
+        event => {
+
+            const remoteVideo =
+                $("remoteVideo");
+
+            if (
+                remoteVideo &&
+                event.streams[0]
+            ) {
+
+                remoteVideo.srcObject =
+                    event.streams[0];
+
+                remoteVideo.play()
+                    .catch(() => {});
+            }
+        };
+
+    /* =========================
+       ICE
+    ========================= */
+
+    peerConnection.onicecandidate =
+        event => {
+
+            if (
+                event.candidate &&
+                socket
+            ) {
+
+                socket.emit(
+                    "ice-candidate",
+                    {
+                        to: remoteID,
+                        candidate:
+                            event.candidate
+                    }
+                );
+            }
+        };
+
+    /* =========================
+       ÉTAT CONNEXION
+    ========================= */
+
+    peerConnection.onconnectionstatechange =
+        () => {
+
+            console.log(
+                "WebRTC :",
+                peerConnection.connectionState
+            );
+
+            if (
+                peerConnection.connectionState ===
+                "connected"
+            ) {
+
+                updateCallStatus(
+                    "Appel connecté"
+                );
+            }
+
+            if (
+                peerConnection.connectionState ===
+                "disconnected"
+            ) {
+
+                updateCallStatus(
+                    "Connexion interrompue..."
+                );
+            }
+
+            if (
+                peerConnection.connectionState ===
+                "failed"
+            ) {
+
+                showToast(
+                    "La connexion de l'appel a échoué."
                 );
 
-            });
-
-        await yourIDPeer.setRemoteDescription(
-            new RTCSessionDescription(
-                yourIDPendingOffer
-            )
-        );
-
-        const answer =
-            await yourIDPeer.createAnswer();
-
-        await yourIDPeer.setLocalDescription(
-            answer
-        );
-
-        yourIDSocket.emit(
-            "answer-call",
-            {
-                to: from,
-                answer: answer
+                closeCallScreen();
             }
-        );
+        };
 
-        yourIDPendingOffer = null;
+    return peerConnection;
+}
+
+/* =========================
+   OBTENIR MICRO / CAMÉRA
+========================= */
+
+async function getMedia(callType) {
+
+    try {
+
+        const constraints =
+            callType === "video"
+                ? {
+                    audio: true,
+                    video: true
+                }
+                : {
+                    audio: true,
+                    video: false
+                };
+
+        localStream =
+            await navigator.mediaDevices
+                .getUserMedia(
+                    constraints
+                );
+
+        microphoneEnabled = true;
+        cameraEnabled =
+            callType === "video";
+
+        const localVideo =
+            $("localVideo");
+
+        if (localVideo) {
+
+            if (callType === "video") {
+
+                localVideo.srcObject =
+                    localStream;
+
+                localVideo.style.display =
+                    "block";
+
+            } else {
+
+                localVideo.style.display =
+                    "none";
+            }
+        }
+
+        return true;
 
     } catch (error) {
 
-        console.error(error);
-
-        showToast(
-            "Impossible d'accéder à la caméra ou au microphone."
+        console.error(
+            "Erreur caméra/micro :",
+            error
         );
 
-        endYourIDCall(false);
+        if (
+            error.name ===
+            "NotAllowedError"
+        ) {
 
+            showToast(
+                "Autorise le micro et la caméra pour appeler."
+            );
+
+        } else {
+
+            showToast(
+                "Impossible d'accéder au micro/caméra."
+            );
+        }
+
+        return false;
     }
 }
 
-/* ==================== REFUSER ==================== */
+/* =========================
+   APPEL AUDIO
+========================= */
 
-function rejectYourIDCall(from) {
-
-    const box =
-        document.getElementById(
-            "yourIDIncomingCall"
-        );
-
-    if (box) {
-        box.remove();
-    }
-
-    if (yourIDSocket) {
-
-        yourIDSocket.emit(
-            "reject-call",
-            {
-                to: from
-            }
-        );
-
-    }
-
-    yourIDPendingOffer = null;
-
-    showToast("Appel refusé.");
-
-}
-
-/* ==================== MICROPHONE ==================== */
-
-function toggleYourIDMicrophone() {
-
-    if (!yourIDLocalStream) return;
-
-    const audioTracks =
-        yourIDLocalStream.getAudioTracks();
-
-    audioTracks.forEach(track => {
-
-        track.enabled =
-            !track.enabled;
-
-    });
-
-    showToast(
-        audioTracks[0].enabled
-            ? "Micro activé 🎤"
-            : "Micro coupé 🔇"
-    );
-}
-
-/* ==================== RACCROCHER ==================== */
-
-function endYourIDCall(notify = true) {
-
-    if (
-        notify &&
-        yourIDSocket &&
-        yourIDCurrentCallWith
-    ) {
-
-        yourIDSocket.emit(
-            "end-call",
-            {
-                to:
-                    yourIDCurrentCallWith.id
-            }
-        );
-
-    }
-
-    if (yourIDLocalStream) {
-
-        yourIDLocalStream
-            .getTracks()
-            .forEach(track => track.stop());
-
-        yourIDLocalStream = null;
-
-    }
-
-    if (yourIDPeer) {
-
-        yourIDPeer.close();
-
-        yourIDPeer = null;
-
-    }
-
-    const callWindow =
-        document.getElementById(
-            "yourIDCallWindow"
-        );
-
-    if (callWindow) {
-        callWindow.remove();
-    }
-
-    const incoming =
-        document.getElementById(
-            "yourIDIncomingCall"
-        );
-
-    if (incoming) {
-        incoming.remove();
-    }
-
-    yourIDCurrentCallWith = null;
-    yourIDPendingOffer = null;
-}
-
-/* ==================== BOUTON D'APPEL ==================== */
-
-/*
-   Cette fonction remplace l'ancien faux appel.
-*/
-
-function fakeCallFromChat() {
+async function startAudioCall() {
 
     if (!currentContact) {
 
@@ -1758,24 +1591,650 @@ function fakeCallFromChat() {
         return;
     }
 
-    startYourIDCall(currentContact);
+    await startCall(
+        currentContact,
+        "audio"
+    );
 }
 
-/* ==================== DÉMARRAGE ==================== */
+/* =========================
+   APPEL VIDÉO
+========================= */
 
-document.addEventListener(
-    "DOMContentLoaded",
-    () => {
+async function startVideoCall() {
 
-        setTimeout(() => {
+    if (!currentContact) {
 
-            if (getCurrentUser()) {
+        showToast(
+            "Ouvre d'abord une conversation."
+        );
 
-                loadYourIDSocketIO();
-
-            }
-
-        }, 1000);
-
+        return;
     }
-);
+
+    await startCall(
+        currentContact,
+        "video"
+    );
+}
+
+/* =========================
+   DÉMARRER APPEL
+========================= */
+
+async function startCall(
+    contact,
+    callType
+) {
+
+    if (!socket) {
+
+        showToast(
+            "Connexion au serveur..."
+        );
+
+        return;
+    }
+
+    if (!socket.connected) {
+
+        showToast(
+            "Connexion au serveur en cours..."
+        );
+
+        return;
+    }
+
+    currentCallType =
+        callType;
+
+    pendingIceCandidates = [];
+
+    const mediaReady =
+        await getMedia(
+            callType
+        );
+
+    if (!mediaReady) {
+        return;
+    }
+
+    createPeerConnection(
+        contact.your_id
+    );
+
+    showCallScreen(
+        contact,
+        callType,
+        "Appel en cours..."
+    );
+
+    try {
+
+        const offer =
+            await peerConnection
+                .createOffer();
+
+        await peerConnection
+            .setLocalDescription(
+                offer
+            );
+
+        socket.emit(
+            "call-user",
+            {
+                to: contact.your_id,
+                offer,
+                callType
+            }
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Erreur création appel :",
+            error
+        );
+
+        showToast(
+            "Impossible de démarrer l'appel."
+        );
+
+        closeCallScreen();
+    }
+}
+
+/* =========================
+   ACCEPTER APPEL
+========================= */
+
+async function acceptIncomingCall() {
+
+    $("incomingCallModal")
+        .classList.remove("active");
+
+    if (!pendingOffer || !pendingCaller) {
+
+        showToast(
+            "Appel invalide."
+        );
+
+        return;
+    }
+
+    const caller =
+        contacts.find(
+            c =>
+            c.your_id ===
+            pendingCaller
+        );
+
+    const contact =
+        caller || {
+            your_id: pendingCaller,
+            username: pendingCaller
+        };
+
+    const mediaReady =
+        await getMedia(
+            currentCallType
+        );
+
+    if (!mediaReady) {
+
+        pendingOffer = null;
+        pendingCaller = null;
+
+        return;
+    }
+
+    createPeerConnection(
+        pendingCaller
+    );
+
+    showCallScreen(
+        contact,
+        currentCallType,
+        "Connexion..."
+    );
+
+    try {
+
+        await peerConnection
+            .setRemoteDescription(
+                new RTCSessionDescription(
+                    pendingOffer
+                )
+            );
+
+        await flushPendingIce();
+
+        const answer =
+            await peerConnection
+                .createAnswer();
+
+        await peerConnection
+            .setLocalDescription(
+                answer
+            );
+
+        socket.emit(
+            "answer-call",
+            {
+                to: pendingCaller,
+                answer
+            }
+        );
+
+        updateCallStatus(
+            "Appel connecté"
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Erreur acceptation appel :",
+            error
+        );
+
+        showToast(
+            "Impossible d'accepter l'appel."
+        );
+
+        closeCallScreen();
+    }
+
+    pendingOffer = null;
+    pendingCaller = null;
+}
+
+/* =========================
+   REFUSER APPEL
+========================= */
+
+function rejectIncomingCall() {
+
+    $("incomingCallModal")
+        .classList.remove("active");
+
+    if (
+        socket &&
+        pendingCaller
+    ) {
+
+        socket.emit(
+            "reject-call",
+            {
+                to: pendingCaller
+            }
+        );
+    }
+
+    pendingOffer = null;
+    pendingCaller = null;
+}
+
+/* =========================
+   ICE EN ATTENTE
+========================= */
+
+async function flushPendingIce() {
+
+    if (!peerConnection) {
+        return;
+    }
+
+    if (
+        !peerConnection.remoteDescription
+    ) {
+        return;
+    }
+
+    for (
+        const candidate
+        of pendingIceCandidates
+    ) {
+
+        try {
+
+            await peerConnection
+                .addIceCandidate(
+                    new RTCIceCandidate(
+                        candidate
+                    )
+                );
+
+        } catch (error) {
+
+            console.error(
+                "Erreur ICE en attente :",
+                error
+            );
+        }
+    }
+
+    pendingIceCandidates = [];
+}
+
+/* =========================
+   ÉCRAN APPEL
+========================= */
+
+function showCallScreen(
+    contact,
+    callType,
+    status
+) {
+
+    $("callContactName")
+        .textContent =
+        contact.username;
+
+    $("callContactAvatar")
+        .textContent =
+        getInitial(
+            contact.username
+        );
+
+    $("callStatus")
+        .textContent =
+        status;
+
+    const remoteVideo =
+        $("remoteVideo");
+
+    const localVideo =
+        $("localVideo");
+
+    if (callType === "video") {
+
+        remoteVideo.style.display =
+            "block";
+
+        localVideo.style.display =
+            "block";
+
+    } else {
+
+        remoteVideo.style.display =
+            "none";
+
+        localVideo.style.display =
+            "none";
+    }
+
+    showScreen(
+        "callScreen"
+    );
+}
+
+function updateCallStatus(status) {
+
+    const element =
+        $("callStatus");
+
+    if (element) {
+        element.textContent =
+            status;
+    }
+}
+
+/* =========================
+   MICROPHONE
+========================= */
+
+function toggleMicrophone() {
+
+    if (!localStream) return;
+
+    const audioTracks =
+        localStream.getAudioTracks();
+
+    if (audioTracks.length === 0) {
+
+        showToast(
+            "Aucun microphone disponible."
+        );
+
+        return;
+    }
+
+    microphoneEnabled =
+        !microphoneEnabled;
+
+    audioTracks.forEach(track => {
+        track.enabled =
+            microphoneEnabled;
+    });
+
+    showToast(
+        microphoneEnabled
+            ? "Micro activé"
+            : "Micro coupé"
+    );
+}
+
+/* =========================
+   TERMINER APPEL
+========================= */
+
+function endCall() {
+
+    if (
+        socket &&
+        currentContact
+    ) {
+
+        socket.emit(
+            "end-call",
+            {
+                to:
+                    currentContact.your_id
+            }
+        );
+    }
+
+    closeCallScreen();
+}
+
+/* =========================
+   FERMER APPEL
+========================= */
+
+function closeCallScreen() {
+
+    if (localStream) {
+
+        localStream
+            .getTracks()
+            .forEach(track => {
+                track.stop();
+            });
+
+        localStream = null;
+    }
+
+    if (peerConnection) {
+
+        try {
+            peerConnection.close();
+        } catch (error) {}
+
+        peerConnection = null;
+    }
+
+    const localVideo =
+        $("localVideo");
+
+    const remoteVideo =
+        $("remoteVideo");
+
+    if (localVideo) {
+        localVideo.srcObject = null;
+    }
+
+    if (remoteVideo) {
+        remoteVideo.srcObject = null;
+    }
+
+    pendingIceCandidates = [];
+
+    showScreen("appScreen");
+
+    if (currentContact) {
+        openChat(
+            currentContact.your_id
+        );
+    }
+}
+
+/* =========================
+   PARTAGER YOURID
+========================= */
+
+async function shareYourID() {
+
+    if (!currentUser) return;
+
+    const text =
+        `Mon YourID est ${currentUser.your_id}`;
+
+    if (
+        navigator.share
+    ) {
+
+        try {
+
+            await navigator.share({
+                title: "YourID",
+                text
+            });
+
+        } catch (error) {}
+
+    } else {
+
+        try {
+
+            await navigator
+                .clipboard
+                .writeText(text);
+
+            showToast(
+                "YourID copié !"
+            );
+
+        } catch (error) {
+
+            showToast(text);
+        }
+    }
+}
+
+/* =========================
+   NOTIFICATIONS
+========================= */
+
+async function requestNotifications() {
+
+    if (
+        !("Notification" in window)
+    ) {
+
+        showToast(
+            "Les notifications ne sont pas disponibles."
+        );
+
+        return;
+    }
+
+    try {
+
+        const permission =
+            await Notification
+                .requestPermission();
+
+        if (
+            permission === "granted"
+        ) {
+
+            showToast(
+                "Notifications activées."
+            );
+
+        } else {
+
+            showToast(
+                "Notifications refusées."
+            );
+        }
+
+    } catch (error) {
+
+        console.error(error);
+
+        showToast(
+            "Impossible d'activer les notifications."
+        );
+    }
+}
+
+/* =========================
+   MODE SOMBRE
+========================= */
+
+function toggleDarkMode() {
+
+    document.body.classList.toggle(
+        "dark"
+    );
+
+    const enabled =
+        document.body.classList.contains(
+            "dark"
+        );
+
+    localStorage.setItem(
+        "yourid_dark_mode",
+        enabled
+            ? "true"
+            : "false"
+    );
+}
+
+function loadDarkMode() {
+
+    const enabled =
+        localStorage.getItem(
+            "yourid_dark_mode"
+        );
+
+    if (enabled === "true") {
+
+        document.body.classList.add(
+            "dark"
+        );
+    }
+}
+
+/* =========================
+   INITIALISATION
+========================= */
+
+async function initYourID() {
+
+    console.log(
+        "🚀 Initialisation de YourID..."
+    );
+
+    loadDarkMode();
+
+    const loggedIn =
+        loadSession();
+
+    if (!loggedIn) {
+
+        showScreen(
+            "welcomeScreen"
+        );
+
+        return;
+    }
+
+    try {
+
+        const response =
+            await fetch(
+                `${API}/me`,
+                {
+                    headers: {
+                        "Authorization":
+                            `Bearer ${authToken}`
+                    }
+                }
+            );
+
+        if (!response.ok) {
+
+            localStorage.removeItem(
+                "yourid_token"
+            );
+
+            localStorage.removeItem(
+                "yourid_user"
+            );
+
+            currentUser = null;
+            authToken = null;
+
+            showScreen(
+                "welcomeScreen"
+            );
+
+            return;
+        }
+
+        const data =
+            await response.json();
+
+        if (data
