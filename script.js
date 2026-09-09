@@ -2232,9 +2232,41 @@ async function initYourID() {
             );
 
             return;
-        }
+        }const data = await response.json();
 
-        const data =
-            await response.json();
+if (!data.success) {
+    localStorage.removeItem("yourid_token");
+    localStorage.removeItem("yourid_user");
 
-        if (data
+    currentUser = null;
+    authToken = null;
+
+    showScreen("welcomeScreen");
+    return;
+}
+
+currentUser = data.user;
+
+saveSession();
+
+openApplication();
+
+    } catch (error) {
+        console.error("Erreur initialisation :", error);
+
+        localStorage.removeItem("yourid_token");
+        localStorage.removeItem("yourid_user");
+
+        currentUser = null;
+        authToken = null;
+
+        showScreen("welcomeScreen");
+    }
+}
+
+document.addEventListener(
+    "DOMContentLoaded",
+    initYourID
+);
+
+      
