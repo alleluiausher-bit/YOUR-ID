@@ -1,110 +1,146 @@
-/* =====================================================
-   YOURID — SCRIPT PRINCIPAL
-   Messages Internet + contacts + WebRTC audio/vidéo
-===================================================== */
+/* =========================================================
+   YourID - script.js
+   Version propre : connexion, contacts, messages, profil.
+   Les appels audio/vidéo sont volontairement désactivés.
+========================================================= */
 
-/* =========================
-   VARIABLES
-========================= */
-
-let currentUser = null;
-let authToken = null;
-let contacts = [];
-let currentContact = null;
-
-let socket = null;
-
-let peerConnection = null;
-let localStream = null;
-let currentCallType = "audio";
-let pendingOffer = null;
-let pendingCaller = null;
-
-let pendingIceCandidates = [];
-
-let microphoneEnabled = true;
-let cameraEnabled = true;
-
-let typingTimeout = null;
-
-/* =========================
-   SERVEUR
-========================= */
-
-/*
-   io() utilise automatiquement le même serveur
-   que YourID sur Render.
-*/
+"use strict";
 
 const API = "/api";
 
-/* =========================
-   OUTILS
-========================= */
+let currentUser = null;
+let authToken = localStorage.getItem("yourid_token") || "";
+let contacts = [];
+let currentContact = null;
+let socket = null;
+let typingTimer = null;
+let conversations = {};
 
 function $(id) {
     return document.getElementById(id);
 }
 
+/* =========================================================
+   OUTILS
+========================================================= */
+
 function showToast(message) {
-
     const toast = $("toast");
-
     if (!toast) return;
 
     toast.textContent = message;
     toast.classList.add("show");
 
-    setTimeout(() => {
+    clearTimeout(showToast.timer);
+    showToast.timer = setTimeout(() => {
         toast.classList.remove("show");
     }, 3000);
 }
 
-function getInitial(name) {
+function formatYourID(value) {
+    const digits = String(value || "").replace(/\D/g, "");
 
-    if (!name) return "?";
+    if (digits.length !== 9) {
+        return String(value || "").trim();
+    }
 
-    return name.trim().charAt(0).toUpperCase();
+    return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 9)}`;
 }
 
-function escapeHTML(text) {
+function initials(name) {
+    const text = String(name || "?").trim();
 
-    const div = document.createElement("div");
+    if (!text) return "?";
 
-    div.textContent = text;
+    const parts = text.split(/\s+/).filter(Boolean);
 
-    return div.innerHTML;
+    if (parts.length === 1) {
+        return parts[0].slice(0, 2).toUpperCase();
+    }
+
+    return (
+        parts[0][0] +
+        parts[parts.length - 1][0]
+    ).toUpperCase();
 }
 
-function formatTime(date) {
+function escapeHTML(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
 
-    const d = new Date(date);
+function formatTime(dateValue) {
+    if (!dateValue) return "";
 
-    return d.toLocaleTimeString([], {
+    const date = new Date(dateValue);
+
+    if (Number.isNaN(date.getTime())) {
+        return "";
+    }
+
+    return date.toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit"
     });
 }
 
-/* =========================
+/* =========================================================
+   API
+========================================================= */
+
+async function apiFetch(path, options = {}) {
+    const headers = {
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+    };
+
+    if (authToken) {
+        headers.Authorization = `Bearer ${authToken}`;
+    }
+
+    const response = await fetch(API + path, {
+        ...options,
+        headers
+    });
+
+    let data = {};
+
+    try {
+        data = await response.json();
+    } catch {
+        data = {};
+    }
+
+    if (!response.ok) {
+        throw new Error(
+            data.message || `Erreur HTTP ${response.status}`
+        );
+    }
+
+    return data;
+}
+
+/* =========================================================
    ÉCRANS
-========================= */
+========================================================= */
 
 function showScreen(screenId) {
-
     document.querySelectorAll(".screen").forEach(screen => {
         screen.classList.remove("active");
     });
 
-    const screen = $(screenId);
+    const target = $(screenId);
 
-    if (screen) {
-        screen.classList.add("active");
+    if (target) {
+        target.classList.add("active");
     }
 }
 
 function showPage(pageId) {
-
     document.querySelectorAll(".page").forEach(page => {
         page.classList.remove("active");
     });
@@ -116,441 +152,345 @@ function showPage(pageId) {
     }
 
     document.querySelectorAll(".nav-btn").forEach(button => {
-        button.classList.remove("active");
-
-        if (button.dataset.page === pageId) {
-            button.classList.add("active");
-        }
+        button.classList.toggle(
+            "active",
+            button.dataset.page === pageId
+        );
     });
-
-    if (pageId === "contactsPage") {
-        loadContacts();
-    }
 }
 
-/* =========================
+/* =========================================================
    INSCRIPTION
-========================= */
+========================================================= */
 
 async function registerUser() {
+    const usernameInput = $("registerUsername");
+    const passwordInput = $("registerPassword");
 
-    const username = $("registerUsername").value.trim();
-    const password = $("registerPassword").value;
+    const username =
+        usernameInput?.value.trim() || "";
 
-    if (!username || !password) {
-        showToast("Remplis tous les champs.");
+    const password =
+        passwordInput?.value || "";
+
+    if (!username) {
+        showToast("Entre ton nom d'utilisateur.");
+        usernameInput?.focus();
         return;
     }
 
     if (password.length < 4) {
-        showToast("Le mot de passe doit contenir au moins 4 caractères.");
+        showToast(
+            "Le mot de passe doit contenir au moins 4 caractères."
+        );
+        passwordInput?.focus();
         return;
     }
 
     try {
+        showToast("Création du compte...");
 
-        const response = await fetch(`${API}/register`, {
+        const data = await apiFetch("/register", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
             body: JSON.stringify({
                 username,
                 password
             })
         });
 
-        const data = await response.json();
-
-        if (!response.ok || !data.success) {
-            showToast(data.message || "Erreur d'inscription.");
-            return;
+        if (!data.success) {
+            throw new Error(
+                data.message ||
+                "Inscription impossible."
+            );
         }
 
-        authToken = data.token;
-        currentUser = data.user;
+        saveSession(data.token, data.user);
 
-        saveSession();
+        if (usernameInput) {
+            usernameInput.value = "";
+        }
 
-        $("registerUsername").value = "";
-        $("registerPassword").value = "";
+        if (passwordInput) {
+            passwordInput.value = "";
+        }
+
+        showScreen("appScreen");
+
+        await startApplication();
 
         showToast(
-            `Compte créé ! Ton YourID est ${currentUser.your_id}`
+            `Compte créé ! Ton YourID est ${formatYourID(
+                data.user.your_id
+            )}`
         );
 
-        openApplication();
-
     } catch (error) {
-
-        console.error(error);
+        console.error(
+            "Erreur inscription :",
+            error
+        );
 
         showToast(
-            "Impossible de contacter le serveur."
+            error.message ||
+            "Impossible de créer le compte."
         );
     }
 }
 
-/* =========================
+/* =========================================================
    CONNEXION
-========================= */
+========================================================= */
 
 async function loginUser() {
+    const yourIdInput = $("loginYourID");
+    const passwordInput = $("loginPassword");
 
-    const yourId = $("loginYourID").value.trim();
-    const password = $("loginPassword").value;
+    const yourId =
+        formatYourID(
+            yourIdInput?.value || ""
+        );
 
-    if (!yourId || !password) {
-        showToast("Remplis tous les champs.");
+    const password =
+        passwordInput?.value || "";
+
+    if (
+        !yourId ||
+        yourId.replace(/\D/g, "").length !== 9
+    ) {
+        showToast("Entre un YourID valide.");
+        yourIdInput?.focus();
+        return;
+    }
+
+    if (!password) {
+        showToast("Entre ton mot de passe.");
+        passwordInput?.focus();
         return;
     }
 
     try {
+        showToast("Connexion...");
 
-        const response = await fetch(`${API}/login`, {
+        const data = await apiFetch("/login", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
             body: JSON.stringify({
                 yourId,
                 password
             })
         });
 
-        const data = await response.json();
-
-        if (!response.ok || !data.success) {
-            showToast(data.message || "Connexion impossible.");
-            return;
+        if (!data.success) {
+            throw new Error(
+                data.message ||
+                "Connexion impossible."
+            );
         }
 
-        authToken = data.token;
-        currentUser = data.user;
+        saveSession(data.token, data.user);
 
-        saveSession();
+        if (yourIdInput) {
+            yourIdInput.value = "";
+        }
 
-        $("loginYourID").value = "";
-        $("loginPassword").value = "";
+        if (passwordInput) {
+            passwordInput.value = "";
+        }
 
-        openApplication();
+        showScreen("appScreen");
+
+        await startApplication();
+
+        showToast("Connexion réussie.");
 
     } catch (error) {
-
-        console.error(error);
+        console.error(
+            "Erreur connexion :",
+            error
+        );
 
         showToast(
-            "Impossible de contacter le serveur."
+            error.message ||
+            "Impossible de se connecter."
         );
     }
 }
 
-/* =========================
-   SESSION
-========================= */
+function saveSession(token, user) {
+    authToken = token || "";
+    currentUser = user || null;
 
-function saveSession() {
-
-    localStorage.setItem(
-        "yourid_token",
-        authToken
-    );
-
-    localStorage.setItem(
-        "yourid_user",
-        JSON.stringify(currentUser)
-    );
-}
-
-function loadSession() {
-
-    const token = localStorage.getItem("yourid_token");
-    const user = localStorage.getItem("yourid_user");
-
-    if (!token || !user) {
-        return false;
+    if (authToken) {
+        localStorage.setItem(
+            "yourid_token",
+            authToken
+        );
     }
 
-    try {
-
-        authToken = token;
-        currentUser = JSON.parse(user);
-
-        return true;
-
-    } catch (error) {
-
-        console.error(error);
-
-        return false;
+    if (currentUser) {
+        localStorage.setItem(
+            "yourid_user",
+            JSON.stringify(currentUser)
+        );
     }
 }
 
-/* =========================
-   OUVRIR L'APPLICATION
-========================= */
+function clearSession() {
+    authToken = "";
+    currentUser = null;
 
-async function openApplication() {
-
-    showScreen("appScreen");
-
-    updateProfile();
-
-    connectSocket();
-
-    await loadContacts();
+    localStorage.removeItem("yourid_token");
+    localStorage.removeItem("yourid_user");
 }
 
-/* =========================
-   PROFIL
-========================= */
-
-function updateProfile() {
-
-    if (!currentUser) return;
-
-    const username =
-        currentUser.username || "Utilisateur";
-
-    const yourId =
-        currentUser.your_id || "---";
-
-    if ($("profileUsername")) {
-        $("profileUsername").textContent = username;
-    }
-
-    if ($("profileYourID")) {
-        $("profileYourID").textContent = yourId;
-    }
-
-    if ($("profileAvatar")) {
-        $("profileAvatar").textContent =
-            getInitial(username);
-    }
-}
-
-/* =========================
+/* =========================================================
    DÉCONNEXION
-========================= */
+========================================================= */
 
 function logoutUser() {
-
     if (socket) {
         socket.disconnect();
         socket = null;
     }
 
-    localStorage.removeItem("yourid_token");
-    localStorage.removeItem("yourid_user");
+    clearSession();
 
-    currentUser = null;
-    authToken = null;
     contacts = [];
     currentContact = null;
-
-    closeChat();
+    conversations = {};
 
     showScreen("welcomeScreen");
+    showPage("homePage");
 
     showToast("Tu es déconnecté.");
 }
 
-/* =========================
-   API AUTH
-========================= */
+/* =========================================================
+   INITIALISATION
+========================================================= */
 
-function authHeaders() {
-
-    return {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${authToken}`
-    };
-}
-
-/* =========================
-   CONTACTS
-========================= */
-
-async function loadContacts() {
-
-    if (!authToken) return;
-
+async function startApplication() {
     try {
+        const data = await apiFetch("/me");
 
-        const response = await fetch(
-            `${API}/contacts`,
-            {
-                headers: {
-                    "Authorization": `Bearer ${authToken}`
-                }
-            }
+        if (
+            !data.success ||
+            !data.user
+        ) {
+            throw new Error(
+                "Session invalide."
+            );
+        }
+
+        currentUser = data.user;
+
+        localStorage.setItem(
+            "yourid_user",
+            JSON.stringify(currentUser)
         );
 
-        if (response.status === 401) {
-            logoutUser();
-            return;
-        }
+        updateProfile();
 
-        const data = await response.json();
+        await loadContacts();
 
-        if (!data.success) {
-            return;
-        }
+        connectSocket();
 
-        contacts = data.contacts || [];
+        showPage("homePage");
+
+    } catch (error) {
+        console.error(
+            "Initialisation :",
+            error
+        );
+
+        clearSession();
+
+        showScreen("welcomeScreen");
+    }
+}
+
+/* =========================================================
+   PROFIL
+========================================================= */
+
+function updateProfile() {
+    if (!currentUser) return;
+
+    const username =
+        currentUser.username ||
+        "Utilisateur";
+
+    const yourId =
+        currentUser.your_id ||
+        currentUser.yourId ||
+        "";
+
+    const profileUsername =
+        $("profileUsername");
+
+    const profileYourID =
+        $("profileYourID");
+
+    const profileAvatar =
+        $("profileAvatar");
+
+    if (profileUsername) {
+        profileUsername.textContent =
+            username;
+    }
+
+    if (profileYourID) {
+        profileYourID.textContent =
+            formatYourID(yourId);
+    }
+
+    if (profileAvatar) {
+        profileAvatar.textContent =
+            initials(username);
+    }
+}
+
+/* =========================================================
+   CONTACTS
+========================================================= */
+
+async function loadContacts() {
+    try {
+        const data =
+            await apiFetch("/contacts");
+
+        contacts =
+            Array.isArray(data.contacts)
+                ? data.contacts
+                : [];
 
         renderContacts();
         renderConversations();
 
     } catch (error) {
-
         console.error(
-            "Erreur chargement contacts :",
+            "Contacts :",
             error
+        );
+
+        showToast(
+            error.message ||
+            "Impossible de charger les contacts."
         );
     }
 }
 
 function renderContacts() {
-
-    const container = $("contactsList");
+    const container =
+        $("contactsList");
 
     if (!container) return;
 
-    if (contacts.length === 0) {
-
+    if (!contacts.length) {
         container.innerHTML = `
             <div class="empty">
                 <div class="emoji">👥</div>
                 <p>Aucun contact.</p>
-            </div>
-        `;
-
-        return;
-    }
-
-    container.innerHTML = contacts.map(contact => {
-
-        return `
-            <div class="contact-card"
-                 onclick="openChat('${contact.your_id}')">
-
-                <div class="avatar">
-                    ${getInitial(contact.username)}
-                </div>
-
-                <div class="contact-info">
-                    <strong>
-                        ${escapeHTML(contact.username)}
-                    </strong>
-
-                    <small>
-                        ${escapeHTML(contact.your_id)}
-                    </small>
-                </div>
-
-                <button
-                    class="icon-btn"
-                    onclick="event.stopPropagation(); openChat('${contact.your_id}')">
-                    💬
-                </button>
-
-            </div>
-        `;
-
-    }).join("");
-}
-
-/* =========================
-   AJOUT CONTACT
-========================= */
-
-function openAddContactModal() {
-
-    $("contactYourIDInput").value = "";
-
-    $("addContactModal")
-        .classList.add("active");
-}
-
-function closeAddContactModal() {
-
-    $("addContactModal")
-        .classList.remove("active");
-}
-
-async function addContact() {
-
-    const yourId =
-        $("contactYourIDInput")
-            .value
-            .trim();
-
-    if (!yourId) {
-        showToast("Entre un YourID.");
-        return;
-    }
-
-    try {
-
-        const response = await fetch(
-            `${API}/contacts`,
-            {
-                method: "POST",
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    yourId
-                })
-            }
-        );
-
-        const data = await response.json();
-
-        if (!response.ok || !data.success) {
-
-            showToast(
-                data.message ||
-                "Impossible d'ajouter ce contact."
-            );
-
-            return;
-        }
-
-        closeAddContactModal();
-
-        showToast(
-            `${data.contact.username} a été ajouté.`
-        );
-
-        await loadContacts();
-
-    } catch (error) {
-
-        console.error(error);
-
-        showToast(
-            "Erreur de connexion au serveur."
-        );
-    }
-}
-
-/* =========================
-   DISCUSSIONS
-========================= */
-
-function renderConversations() {
-
-    const container =
-        $("conversationsList");
-
-    if (!container) return;
-
-    if (contacts.length === 0) {
-
-        container.innerHTML = `
-            <div class="empty">
-                <div class="emoji">💬</div>
-                <p>Aucune conversation pour le moment.</p>
                 <small>
                     Ajoute un contact pour commencer.
                 </small>
@@ -560,76 +500,262 @@ function renderConversations() {
         return;
     }
 
-    container.innerHTML = contacts.map(contact => {
-
-        return `
-            <div
-                class="conversation-item"
-                data-name="${escapeHTML(contact.username.toLowerCase())}"
-                onclick="openChat('${contact.your_id}')"
-            >
+    container.innerHTML =
+        contacts.map(contact => `
+            <div class="contact-card">
 
                 <div class="avatar">
-                    ${getInitial(contact.username)}
+                    ${escapeHTML(
+                        initials(contact.username)
+                    )}
                 </div>
 
-                <div class="conversation-info">
+                <div class="contact-info">
 
                     <strong>
-                        ${escapeHTML(contact.username)}
+                        ${escapeHTML(
+                            contact.username
+                        )}
                     </strong>
 
-                    <span>
-                        ${escapeHTML(contact.your_id)}
-                    </span>
+                    <small>
+                        ${escapeHTML(
+                            formatYourID(
+                                contact.your_id
+                            )
+                        )}
+                    </small>
 
                 </div>
 
+                <button
+                    class="icon-btn"
+                    onclick="openChat('${escapeHTML(
+                        contact.your_id
+                    )}')"
+                    title="Message"
+                >
+                    💬
+                </button>
+
+            </div>
+        `).join("");
+}
+
+function openAddContactModal() {
+    const modal =
+        $("addContactModal");
+
+    if (!modal) return;
+
+    modal.classList.add("active");
+
+    const input =
+        $("contactYourIDInput");
+
+    input?.focus();
+}
+
+function closeAddContactModal() {
+    $("addContactModal")
+        ?.classList.remove("active");
+}
+
+async function addContact() {
+    const input =
+        $("contactYourIDInput");
+
+    const yourId =
+        formatYourID(
+            input?.value || ""
+        );
+
+    if (
+        !yourId ||
+        yourId.replace(/\D/g, "").length !== 9
+    ) {
+        showToast(
+            "Entre un YourID valide."
+        );
+
+        input?.focus();
+
+        return;
+    }
+
+    try {
+        const data =
+            await apiFetch("/contacts", {
+                method: "POST",
+                body: JSON.stringify({
+                    yourId
+                })
+            });
+
+        if (!data.success) {
+            throw new Error(
+                data.message ||
+                "Impossible d'ajouter."
+            );
+        }
+
+        if (input) {
+            input.value = "";
+        }
+
+        closeAddContactModal();
+
+        await loadContacts();
+
+        showToast(
+            `${data.contact.username} a été ajouté.`
+        );
+
+    } catch (error) {
+        console.error(
+            "Ajout contact :",
+            error
+        );
+
+        showToast(
+            error.message ||
+            "Impossible d'ajouter ce contact."
+        );
+    }
+}
+
+/* =========================================================
+   DISCUSSIONS
+========================================================= */
+
+function renderConversations() {
+    const container =
+        $("conversationsList");
+
+    if (!container) return;
+
+    if (!contacts.length) {
+        container.innerHTML = `
+            <div class="empty">
+                <div class="emoji">💬</div>
+                <p>
+                    Aucune conversation pour le moment.
+                </p>
+                <small>
+                    Ajoute un contact pour commencer.
+                </small>
             </div>
         `;
 
-    }).join("");
+        return;
+    }
+
+    const search =
+        $("conversationSearch")
+            ?.value.trim()
+            .toLowerCase() || "";
+
+    const filtered =
+        contacts.filter(contact => {
+
+            const name =
+                String(
+                    contact.username || ""
+                ).toLowerCase();
+
+            const id =
+                String(
+                    contact.your_id || ""
+                ).toLowerCase();
+
+            return (
+                !search ||
+                name.includes(search) ||
+                id.includes(search)
+            );
+        });
+
+    if (!filtered.length) {
+        container.innerHTML = `
+            <div class="empty">
+                <div class="emoji">🔎</div>
+                <p>Aucun résultat.</p>
+            </div>
+        `;
+
+        return;
+    }
+
+    container.innerHTML =
+        filtered.map(contact => {
+
+            const last =
+                conversations[
+                    contact.your_id
+                ];
+
+            return `
+                <div
+                    class="conversation-item"
+                    onclick="openChat('${escapeHTML(
+                        contact.your_id
+                    )}')"
+                >
+
+                    <div class="avatar">
+                        ${escapeHTML(
+                            initials(
+                                contact.username
+                            )
+                        )}
+                    </div>
+
+                    <div class="conversation-info">
+
+                        <strong>
+                            ${escapeHTML(
+                                contact.username
+                            )}
+                        </strong>
+
+                        <span>
+                            ${
+                                last
+                                    ? escapeHTML(
+                                        last.content
+                                    )
+                                    : "Appuie pour discuter"
+                            }
+                        </span>
+
+                    </div>
+
+                </div>
+            `;
+        }).join("");
 }
 
 function filterConversations() {
-
-    const input =
-        $("conversationSearch");
-
-    if (!input) return;
-
-    const value =
-        input.value
-            .trim()
-            .toLowerCase();
-
-    document
-        .querySelectorAll(".conversation-item")
-        .forEach(item => {
-
-            const name =
-                item.dataset.name || "";
-
-            item.style.display =
-                name.includes(value)
-                    ? "flex"
-                    : "none";
-        });
+    renderConversations();
 }
 
-/* =========================
+/* =========================================================
    CHAT
-========================= */
+========================================================= */
 
 async function openChat(yourId) {
+    const id =
+        formatYourID(yourId);
 
     const contact =
         contacts.find(
-            c => c.your_id === yourId
+            item =>
+                formatYourID(
+                    item.your_id
+                ) === id
         );
 
     if (!contact) {
-
         showToast(
             "Contact introuvable."
         );
@@ -639,165 +765,204 @@ async function openChat(yourId) {
 
     currentContact = contact;
 
-    $("chatContactName")
-        .textContent = contact.username;
+    const name =
+        contact.username ||
+        "Contact";
 
-    $("chatAvatar")
-        .textContent =
-        getInitial(contact.username);
+    if ($("chatContactName")) {
+        $("chatContactName")
+            .textContent = name;
+    }
 
-    $("chatOnlineStatus")
-        .textContent = "Connexion...";
+    if ($("chatAvatar")) {
+        $("chatAvatar")
+            .textContent = initials(name);
+    }
 
-    $("chatMessages").innerHTML = `
-        <div class="empty">
-            Chargement des messages...
-        </div>
-    `;
+    if ($("chatOnlineStatus")) {
+        $("chatOnlineStatus")
+            .textContent = "Connexion...";
+    }
 
     showScreen("chatPage");
 
-    await loadMessages(yourId);
-}
+    await loadConversation(
+        contact.your_id
+    );
 
-/* =========================
-   FERMER CHAT
-========================= */
-
-function closeChat() {
-
-    currentContact = null;
-
-    const chat =
-        $("chatPage");
-
-    if (chat) {
-        chat.classList.remove("active");
-    }
-
-    const app =
-        $("appScreen");
-
-    if (app) {
-        app.classList.add("active");
-    }
-}
-
-/* =========================
-   HISTORIQUE
-========================= */
-
-async function loadMessages(yourId) {
-
-    try {
-
-        const response = await fetch(
-            `${API}/messages/${encodeURIComponent(yourId)}`,
+    if (socket?.connected) {
+        socket.emit(
+            "mark-read",
             {
-                headers: {
-                    "Authorization":
-                        `Bearer ${authToken}`
-                }
+                from: contact.your_id
             }
         );
-
-        const data = await response.json();
-
-        if (!response.ok || !data.success) {
-
-            showToast(
-                data.message ||
-                "Impossible de charger les messages."
-            );
-
-            return;
-        }
-
-        renderMessages(
-            data.messages || []
-        );
-
-        markMessagesRead(yourId);
-
-    } catch (error) {
-
-        console.error(error);
-
-        showToast(
-            "Erreur de chargement des messages."
-        );
     }
+
+    $("messageInput")?.focus();
 }
 
-/* =========================
-   AFFICHER MESSAGES
-========================= */
+function closeChat() {
+    currentContact = null;
 
-function renderMessages(messages) {
+    showScreen("appScreen");
 
+    showPage("homePage");
+}
+
+async function loadConversation(yourId) {
     const container =
         $("chatMessages");
 
     if (!container) return;
 
-    if (messages.length === 0) {
+    container.innerHTML = `
+        <div class="empty">
+            <div class="emoji">⏳</div>
+            <p>Chargement...</p>
+        </div>
+    `;
+
+    try {
+        const data =
+            await apiFetch(
+                `/messages/${encodeURIComponent(
+                    formatYourID(yourId)
+                )}`
+            );
+
+        const messages =
+            Array.isArray(data.messages)
+                ? data.messages
+                : [];
+
+        container.innerHTML = "";
+
+        messages.forEach(message => {
+            renderMessage(
+                message,
+                false
+            );
+        });
+
+        scrollChatToBottom();
+
+    } catch (error) {
+        console.error(
+            "Historique :",
+            error
+        );
 
         container.innerHTML = `
             <div class="empty">
-                <div class="emoji">👋</div>
-                <p>Aucun message.</p>
-                <small>
-                    Envoie le premier message.
-                </small>
+                <div class="emoji">⚠️</div>
+                <p>
+                    Impossible de charger les messages.
+                </p>
             </div>
         `;
 
+        showToast(
+            error.message ||
+            "Erreur de chargement."
+        );
+    }
+}
+
+function renderMessage(
+    message,
+    scroll = true
+) {
+    const container =
+        $("chatMessages");
+
+    if (
+        !container ||
+        !currentUser
+    ) {
         return;
     }
 
-    container.innerHTML = messages.map(message => {
+    const senderId =
+        message.from ||
+        message.sender_your_id ||
+        "";
 
-        const sent =
-            message.sender_your_id ===
-            currentUser.your_id;
+    const myId =
+        currentUser.your_id ||
+        currentUser.yourId ||
+        "";
 
-        return `
-            <div class="message ${sent ? "sent" : "received"}">
+    const isSent =
+        formatYourID(senderId) ===
+        formatYourID(myId);
 
-                ${escapeHTML(message.content)}
+    const div =
+        document.createElement("div");
 
-                <span class="message-time">
-                    ${formatTime(message.created_at)}
-                    ${sent ? " ✓" : ""}
-                </span>
+    div.className =
+        `message ${
+            isSent
+                ? "sent"
+                : "received"
+        }`;
 
-            </div>
-        `;
+    div.dataset.messageId =
+        message.id || "";
 
-    }).join("");
+    const time =
+        formatTime(
+            message.created_at
+        );
 
-    scrollChatToBottom();
+    div.innerHTML = `
+        ${escapeHTML(
+            message.content || ""
+        )}
+
+        <span class="message-time">
+            ${escapeHTML(time)}
+        </span>
+    `;
+
+    container.appendChild(div);
+
+    if (scroll) {
+        scrollChatToBottom();
+    }
 }
 
-/* =========================
-   ENVOYER MESSAGE
-========================= */
+function scrollChatToBottom() {
+    const container =
+        $("chatMessages");
+
+    if (!container) return;
+
+    requestAnimationFrame(() => {
+        container.scrollTop =
+            container.scrollHeight;
+    });
+}
+
+/* =========================================================
+   ENVOI MESSAGE
+========================================================= */
 
 function sendMessage() {
-
-    if (!socket) {
-
+    if (!currentContact) {
         showToast(
-            "Connexion au serveur en cours..."
+            "Ouvre une conversation."
         );
 
         return;
     }
 
-    if (!currentContact) {
-
+    if (
+        !socket ||
+        !socket.connected
+    ) {
         showToast(
-            "Aucun contact sélectionné."
+            "Connexion au serveur en cours..."
         );
 
         return;
@@ -807,7 +972,7 @@ function sendMessage() {
         $("messageInput");
 
     const content =
-        input.value.trim();
+        input?.value.trim() || "";
 
     if (!content) return;
 
@@ -821,1374 +986,420 @@ function sendMessage() {
 
     input.value = "";
 
-    stopTyping();
+    socket.emit(
+        "typing",
+        {
+            to: currentContact.your_id,
+            typing: false
+        }
+    );
 }
 
-/* =========================
-   TOUCHE ENTRÉE
-========================= */
-
 function handleMessageKey(event) {
-
-    if (event.key === "Enter") {
-
+    if (
+        event.key === "Enter" &&
+        !event.shiftKey
+    ) {
         event.preventDefault();
 
         sendMessage();
     }
 }
 
-/* =========================
-   TYPING
-========================= */
-
 function handleTyping() {
-
-    if (!socket || !currentContact) {
+    if (
+        !socket ||
+        !socket.connected ||
+        !currentContact
+    ) {
         return;
     }
 
-    socket.emit("typing", {
-        to: currentContact.your_id,
-        typing: true
-    });
-
-    clearTimeout(typingTimeout);
-
-    typingTimeout = setTimeout(
-        stopTyping,
-        1200
+    socket.emit(
+        "typing",
+        {
+            to: currentContact.your_id,
+            typing: true
+        }
     );
+
+    clearTimeout(typingTimer);
+
+    typingTimer =
+        setTimeout(() => {
+
+            if (
+                socket?.connected &&
+                currentContact
+            ) {
+                socket.emit(
+                    "typing",
+                    {
+                        to:
+                            currentContact.your_id,
+                        typing: false
+                    }
+                );
+            }
+
+        }, 900);
 }
 
-function stopTyping() {
-
-    if (!socket || !currentContact) {
-        return;
-    }
-
-    socket.emit("typing", {
-        to: currentContact.your_id,
-        typing: false
-    });
-}
-
-/* =========================
-   SCROLL CHAT
-========================= */
-
-function scrollChatToBottom() {
-
-    const container =
-        $("chatMessages");
-
-    if (!container) return;
-
-    setTimeout(() => {
-
-        container.scrollTop =
-            container.scrollHeight;
-
-    }, 50);
-}
-
-/* =========================
+/* =========================================================
    SOCKET.IO
-========================= */
+========================================================= */
 
 function connectSocket() {
-
     if (!currentUser) return;
 
     if (socket) {
+        socket.disconnect();
+        socket = null;
+    }
 
-        if (socket.connected) {
-            return;
-        }
+    if (typeof io !== "function") {
+        console.error(
+            "Socket.IO n'est pas chargé."
+        );
 
-        socket.connect();
+        showToast(
+            "Le système de messages n'est pas disponible."
+        );
 
         return;
     }
 
-    try {
+    socket = io({
+        transports: [
+            "websocket",
+            "polling"
+        ]
+    });
 
-        socket = io();
-
-        socket.on("connect", () => {
+    socket.on(
+        "connect",
+        () => {
 
             console.log(
-                "🟢 YourID connecté au serveur",
-                socket.id
+                "🟢 Socket connecté"
             );
 
             socket.emit(
                 "register-socket",
                 {
                     yourId:
-                        currentUser.your_id
+                        currentUser.your_id ||
+                        currentUser.yourId
                 }
             );
-        });
 
-        socket.on("connect_error", error => {
+            updateOnlineStatus();
+        }
+    );
+
+    socket.on(
+        "connect_error",
+        error => {
 
             console.error(
-                "Erreur Socket.IO :",
+                "Socket :",
                 error
             );
 
-            showToast(
-                "Connexion temps réel impossible."
+            updateOnlineStatus();
+        }
+    );
+
+    socket.on(
+        "disconnect",
+        () => {
+
+            console.log(
+                "🔴 Socket déconnecté"
             );
-        });
 
-        /* =========================
-           MESSAGE REÇU
-        ========================= */
+            updateOnlineStatus();
+        }
+    );
 
-        socket.on(
-            "message-received",
-            message => {
+    socket.on(
+        "message-sent",
+        message => {
+            handleIncomingMessage(
+                message
+            );
+        }
+    );
 
-                console.log(
-                    "📩 Message reçu",
+    socket.on(
+        "message-received",
+        message => {
+
+            handleIncomingMessage(
+                message
+            );
+
+            if (
+                currentContact &&
+                formatYourID(
+                    message.from
+                ) ===
+                formatYourID(
+                    currentContact.your_id
+                )
+            ) {
+                socket.emit(
+                    "mark-read",
+                    {
+                        from:
+                            message.from
+                    }
+                );
+
+            } else {
+
+                showToast(
+                    "💬 Nouveau message"
+                );
+
+                requestNotificationsForMessage(
                     message
                 );
+            }
+        }
+    );
 
-                if (
-                    currentContact &&
-                    message.from ===
+    socket.on(
+        "message-error",
+        data => {
+
+            showToast(
+                data?.message ||
+                "Impossible d'envoyer le message."
+            );
+        }
+    );
+
+    socket.on(
+        "typing",
+        data => {
+
+            if (
+                !currentContact ||
+                formatYourID(
+                    data.from
+                ) !==
+                formatYourID(
                     currentContact.your_id
-                ) {
-
-                    addMessageToChat(
-                        message,
-                        false
-                    );
-
-                    markMessagesRead(
-                        currentContact.your_id
-                    );
-
-                } else {
-
-                    showToast(
-                        `Nouveau message de ${message.from}`
-                    );
-                }
+                )
+            ) {
+                return;
             }
-        );
 
-        /* =========================
-           MESSAGE ENVOYÉ
-        ========================= */
+            const indicator =
+                $("typingIndicator");
 
-        socket.on(
-            "message-sent",
-            message => {
+            if (!indicator) return;
 
-                if (
-                    currentContact &&
-                    message.to ===
-                    currentContact.your_id
-                ) {
+            indicator.textContent =
+                data.typing
+                    ? `${currentContact.username} écrit...`
+                    : "";
 
-                    addMessageToChat(
-                        message,
-                        true
-                    );
-                }
-            }
-        );
+            if (data.typing) {
 
-        /* =========================
-           ERREUR MESSAGE
-        ========================= */
-
-        socket.on(
-            "message-error",
-            data => {
-
-                showToast(
-                    data.message ||
-                    "Erreur d'envoi."
-                );
-            }
-        );
-
-        /* =========================
-           TYPING
-        ========================= */
-
-        socket.on(
-            "typing",
-            data => {
-
-                if (
-                    !currentContact ||
-                    data.from !==
-                    currentContact.your_id
-                ) {
-                    return;
-                }
-
-                const indicator =
-                    $("typingIndicator");
-
-                if (!indicator) return;
-
-                indicator.textContent =
-                    data.typing
-                        ? `${currentContact.username} écrit...`
-                        : "";
-            }
-        );
-
-        /* =========================
-           LU
-        ========================= */
-
-        socket.on(
-            "messages-read",
-            data => {
-
-                console.log(
-                    "Messages lus par",
-                    data.by
-                );
-            }
-        );
-
-        /* =========================
-           ONLINE
-        ========================= */
-
-        socket.on(
-            "user-online",
-            data => {
-
-                updateContactStatus(
-                    data.yourId,
-                    true
-                );
-            }
-        );
-
-        /* =========================
-           OFFLINE
-        ========================= */
-
-        socket.on(
-            "user-offline",
-            data => {
-
-                updateContactStatus(
-                    data.yourId,
-                    false
-                );
-            }
-        );
-
-        /* =========================
-           APPEL ENTRANT
-        ========================= */
-
-        socket.on(
-            "incoming-call",
-            async data => {
-
-                console.log(
-                    "📞 Appel entrant",
-                    data
+                clearTimeout(
+                    indicator._timer
                 );
 
-                pendingOffer =
-                    data.offer;
-
-                pendingCaller =
-                    data.from;
-
-                currentCallType =
-                    data.callType || "audio";
-
-                const caller =
-                    contacts.find(
-                        c =>
-                        c.your_id ===
-                        data.from
-                    );
-
-                const name =
-                    caller
-                        ? caller.username
-                        : data.from;
-
-                $("incomingCallTitle")
-                    .textContent =
-                    currentCallType === "video"
-                        ? "🎥 Appel vidéo entrant"
-                        : "📞 Appel audio entrant";
-
-                $("incomingCallFrom")
-                    .textContent =
-                    `${name} t'appelle`;
-
-                $("incomingCallAvatar")
-                    .textContent =
-                    caller
-                        ? getInitial(caller.username)
-                        : "📞";
-
-                $("incomingCallModal")
-                    .classList.add("active");
+                indicator._timer =
+                    setTimeout(() => {
+                        indicator.textContent =
+                            "";
+                    }, 2000);
             }
-        );
+        }
+    );
 
-        /* =========================
-           APPEL ACCEPTÉ
-        ========================= */
+    socket.on(
+        "messages-read",
+        data => {
 
-        socket.on(
-            "call-answered",
-            async data => {
+            console.log(
+                "Messages lus par :",
+                data?.by
+            );
+        }
+    );
 
-                if (!peerConnection) {
-                    return;
-                }
+    socket.on(
+        "user-online",
+        data => {
 
-                try {
+            updateContactOnline(
+                data?.yourId,
+                true
+            );
+        }
+    );
 
-                    await peerConnection
-                        .setRemoteDescription(
-                            new RTCSessionDescription(
-                                data.answer
-                            )
-                        );
+    socket.on(
+        "user-offline",
+        data => {
 
-                    await flushPendingIce();
-
-                    updateCallStatus(
-                        "Appel connecté"
-                    );
-
-                } catch (error) {
-
-                    console.error(
-                        "Erreur réponse appel :",
-                        error
-                    );
-
-                    showToast(
-                        "Impossible de connecter l'appel."
-                    );
-                }
-            }
-        );
-
-        /* =========================
-           ICE
-        ========================= */
-
-        socket.on(
-            "ice-candidate",
-            async data => {
-
-                if (!data.candidate) {
-                    return;
-                }
-
-                if (
-                    peerConnection &&
-                    peerConnection.remoteDescription
-                ) {
-
-                    try {
-
-                        await peerConnection
-                            .addIceCandidate(
-                                new RTCIceCandidate(
-                                    data.candidate
-                                )
-                            );
-
-                    } catch (error) {
-
-                        console.error(
-                            "Erreur ICE :",
-                            error
-                        );
-                    }
-
-                } else {
-
-                    pendingIceCandidates
-                        .push(data.candidate);
-                }
-            }
-        );
-
-        /* =========================
-           APPEL REFUSÉ
-        ========================= */
-
-        socket.on(
-            "call-rejected",
-            () => {
-
-                showToast(
-                    "Appel refusé."
-                );
-
-                closeCallScreen();
-            }
-        );
-
-        /* =========================
-           APPEL TERMINÉ
-        ========================= */
-
-        socket.on(
-            "call-ended",
-            () => {
-
-                showToast(
-                    "Appel terminé."
-                );
-
-                closeCallScreen();
-            }
-        );
-
-    } catch (error) {
-
-        console.error(
-            "Socket.IO indisponible :",
-            error
-        );
-    }
-}
-
-/* =========================
-   AJOUT MESSAGE DIRECT
-========================= */
-
-function addMessageToChat(
-    message,
-    sent
-) {
-
-    const container =
-        $("chatMessages");
-
-    if (!container) return;
-
-    const empty =
-        container.querySelector(".empty");
-
-    if (empty) {
-        empty.remove();
-    }
-
-    const element =
-        document.createElement("div");
-
-    element.className =
-        `message ${sent ? "sent" : "received"}`;
-
-    element.innerHTML = `
-        ${escapeHTML(message.content)}
-
-        <span class="message-time">
-            ${formatTime(message.created_at)}
-            ${sent ? " ✓" : ""}
-        </span>
-    `;
-
-    container.appendChild(element);
-
-    scrollChatToBottom();
-}
-
-/* =========================
-   STATUT CONTACT
-========================= */
-
-function updateContactStatus(
-    yourId,
-    online
-) {
-
-    if (
-        currentContact &&
-        currentContact.your_id === yourId
-    ) {
-
-        $("chatOnlineStatus")
-            .textContent =
-            online
-                ? "🟢 En ligne"
-                : "Hors ligne";
-    }
-}
-
-/* =========================
-   MESSAGE LU
-========================= */
-
-function markMessagesRead(yourId) {
-
-    if (!socket || !yourId) {
-        return;
-    }
-
-    socket.emit(
-        "mark-read",
-        {
-            from: yourId
+            updateContactOnline(
+                data?.yourId,
+                false
+            );
         }
     );
 }
 
-/* =====================================================
-   WEBRTC
-===================================================== */
+function handleIncomingMessage(
+    message
+) {
+    if (!currentUser) return;
 
-/* =========================
-   CONFIGURATION WEBRTC
-========================= */
+    const myId =
+        currentUser.your_id ||
+        currentUser.yourId ||
+        "";
 
-const rtcConfiguration = {
-
-    iceServers: [
-        {
-            urls: "stun:stun.l.google.com:19302"
-        }
-    ]
-};
-
-/* =========================
-   CRÉER PEER CONNECTION
-========================= */
-
-function createPeerConnection(remoteID) {
-
-    if (peerConnection) {
-
-        try {
-            peerConnection.close();
-        } catch (error) {}
-    }
-
-    pendingIceCandidates = [];
-
-    peerConnection =
-        new RTCPeerConnection(
-            rtcConfiguration
+    const sender =
+        formatYourID(
+            message.from || ""
         );
 
-    /* =========================
-       STREAM LOCAL
-    ========================= */
+    const receiver =
+        formatYourID(
+            message.to || ""
+        );
 
-    if (localStream) {
+    const otherId =
+        sender === formatYourID(myId)
+            ? receiver
+            : sender;
 
-        localStream
-            .getTracks()
-            .forEach(track => {
+    conversations[otherId] =
+        message;
 
-                peerConnection.addTrack(
-                    track,
-                    localStream
-                );
-            });
+    renderConversations();
+
+    if (
+        currentContact &&
+        (
+            sender ===
+            formatYourID(
+                currentContact.your_id
+            ) ||
+            receiver ===
+            formatYourID(
+                currentContact.your_id
+            )
+        )
+    ) {
+        renderMessage(
+            message,
+            true
+        );
     }
-
-   
-            if (
-                event.candidate &&
-                socket
-            ) {
-
-                socket.emit(
-                    "ice-candidate",
-                    {
-                        to: remoteIpeerConnection.ontrack = event => {
-
-    if (!event.streams[0]) return;
-/* =========================
-   STREAM DISTANT
-========================= */
-
-peerConnection.ontrack = event => {
-
-    if (!event.streams[0]) return;
-
-    const remoteVideo = $("remoteVideo");
-
-    if (!remoteVideo) return;
-
-    remoteVideo.srcObject = event.streams[0];
-
-    remoteVideo.muted = false;
-    remoteVideo.volume = 1.0;
-
-    remoteVideo.play()
-        .then(() => {
-            console.log("🔊 Audio distant activé");
-        })
-        .catch(error => {
-            console.error(
-                "Impossible de lire le son distant :",
-                error
-            );
-        });
-};
-
-/* =========================
-   ICE
-========================= */
-
-peerConnection.onicecandidate =
-    event => {
-
-        if (
-            event.candidate &&
-            socket
-        ) {
-
-            socket.emit(
-                "ice-candidate",
-                {
-                    to: remoteID,
-                    candidate:
-                        event.candidate
-                }
-            );
-        }
-    };
-    const remoteVideo = $("remoteVideo");
-
-    if (!remoteVideo) return;
-
-    remoteVideo.srcObject = event.streams[0];
-
-    remoteVideo.muted = false;
-    remoteVideo.volume = 1.0;
-
-    remoteVideo.play()
-        .then(() => {
-            console.log("🔊 Audio distant activé");
-        })
-        .catch(error => {
-            console.error(
-                "Impossible de lire le son distant :",
-                error
-            );
-        });
-};
-                        candidate:
-                            event.candidate
-                    }
-                );
-            }
-        };
-
-    /* =========================
-       ÉTAT CONNEXION
-    ========================= */
-
-    peerConnection.onconnectionstatechange =
-        () => {
-
-            console.log(
-                "WebRTC :",
-                peerConnection.connectionState
-            );
-
-            if (
-                peerConnection.connectionState ===
-                "connected"
-            ) {
-
-                updateCallStatus(
-                    "Appel connecté"
-                );
-            }
-
-            if (
-                peerConnection.connectionState ===
-                "disconnected"
-            ) {
-
-                updateCallStatus(
-                    "Connexion interrompue..."
-                );
-            }
-
-            if (
-                peerConnection.connectionState ===
-                "failed"
-            ) {
-
-                showToast(
-                    "La connexion de l'appel a échoué."
-                );
-
-                closeCallScreen();
-            }
-        };
-
-    return peerConnection;
 }
 
-/* =========================
-   OBTENIR MICRO / CAMÉRA
-========================= */
+function updateOnlineStatus() {
+    if (!currentContact) return;
 
-async function getMedia(callType) {
+    const status =
+        $("chatOnlineStatus");
+
+    if (!status) return;
+
+    status.textContent =
+        socket?.connected
+            ? "En ligne"
+            : "Hors ligne";
+}
+
+function updateContactOnline(
+    yourId,
+    online
+) {
+    if (!currentContact) return;
+
+    if (
+        formatYourID(yourId) ===
+        formatYourID(
+            currentContact.your_id
+        )
+    ) {
+        const status =
+            $("chatOnlineStatus");
+
+        if (status) {
+            status.textContent =
+                online
+                    ? "En ligne"
+                    : "Hors ligne";
+        }
+    }
+}
+
+/* =========================================================
+   PARTAGE YOURID
+========================================================= */
+
+async function shareYourID() {
+    if (!currentUser) return;
+
+    const yourId =
+        formatYourID(
+            currentUser.your_id ||
+            currentUser.yourId
+        );
+
+    const text =
+        `Mon YourID : ${yourId}`;
 
     try {
 
-        const constraints =
-            callType === "video"
-                ? {
-                    audio: true,
-                    video: true
-                }
-                : {
-                    audio: true,
-                    video: false
-                };
+        if (navigator.share) {
 
-        localStream =
-            await navigator.mediaDevices
-                .getUserMedia(
-                    constraints
-                );
+            await navigator.share({
+                title: "Mon YourID",
+                text
+            });
 
-        microphoneEnabled = true;
-        cameraEnabled =
-            callType === "video";
-
-        const localVideo =
-            $("localVideo");
-
-        if (localVideo) {
-
-            if (callType === "video") {
-
-                localVideo.srcObject =
-                    localStream;
-
-                localVideo.style.display =
-                    "block";
-
-            } else {
-
-                localVideo.style.display =
-                    "none";
-            }
-        }
-
-        return true;
-
-    } catch (error) {
-
-        console.error(
-            "Erreur caméra/micro :",
-            error
-        );
-
-        if (
-            error.name ===
-            "NotAllowedError"
+        } else if (
+            navigator.clipboard
         ) {
 
+            await navigator.clipboard
+                .writeText(text);
+
             showToast(
-                "Autorise le micro et la caméra pour appeler."
+                "YourID copié."
             );
 
         } else {
 
-            showToast(
-                "Impossible d'accéder au micro/caméra."
-            );
+            showToast(text);
         }
-
-        return false;
-    }
-}
-
-/* =========================
-   APPEL AUDIO
-========================= */
-
-async function startAudioCall() {
-
-    if (!currentContact) {
-
-        showToast(
-            "Ouvre d'abord une conversation."
-        );
-
-        return;
-    }
-
-    await startCall(
-        currentContact,
-        "audio"
-    );
-}
-
-/* =========================
-   APPEL VIDÉO
-========================= */
-
-async function startVideoCall() {
-
-    if (!currentContact) {
-
-        showToast(
-            "Ouvre d'abord une conversation."
-        );
-
-        return;
-    }
-
-    await startCall(
-        currentContact,
-        "video"
-    );
-}
-
-/* =========================
-   DÉMARRER APPEL
-========================= */
-
-async function startCall(
-    contact,
-    callType
-) {
-
-    if (!socket) {
-
-        showToast(
-            "Connexion au serveur..."
-        );
-
-        return;
-    }
-
-    if (!socket.connected) {
-
-        showToast(
-            "Connexion au serveur en cours..."
-        );
-
-        return;
-    }
-
-    currentCallType =
-        callType;
-
-    pendingIceCandidates = [];
-
-    const mediaReady =
-        await getMedia(
-            callType
-        );
-
-    if (!mediaReady) {
-        return;
-    }
-
-    createPeerConnection(
-        contact.your_id
-    );
-
-    showCallScreen(
-        contact,
-        callType,
-        "Appel en cours..."
-    );
-
-    try {
-
-        const offer =
-            await peerConnection
-                .createOffer();
-
-        await peerConnection
-            .setLocalDescription(
-                offer
-            );
-
-        socket.emit(
-            "call-user",
-            {
-                to: contact.your_id,
-                offer,
-                callType
-            }
-        );
 
     } catch (error) {
 
-        console.error(
-            "Erreur création appel :",
-            error
-        );
-
-        showToast(
-            "Impossible de démarrer l'appel."
-        );
-
-        closeCallScreen();
-    }
-}
-
-/* =========================
-   ACCEPTER APPEL
-========================= */
-
-async function acceptIncomingCall() {
-
-    $("incomingCallModal")
-        .classList.remove("active");
-
-    if (!pendingOffer || !pendingCaller) {
-
-        showToast(
-            "Appel invalide."
-        );
-
-        return;
-    }
-
-    const caller =
-        contacts.find(
-            c =>
-            c.your_id ===
-            pendingCaller
-        );
-
-    const contact =
-        caller || {
-            your_id: pendingCaller,
-            username: pendingCaller
-        };
-
-    const mediaReady =
-        await getMedia(
-            currentCallType
-        );
-
-    if (!mediaReady) {
-
-        pendingOffer = null;
-        pendingCaller = null;
-
-        return;
-    }
-
-    createPeerConnection(
-        pendingCaller
-    );
-
-    showCallScreen(
-        contact,
-        currentCallType,
-        "Connexion..."
-    );
-
-    try {
-
-        await peerConnection
-            .setRemoteDescription(
-                new RTCSessionDescription(
-                    pendingOffer
-                )
-            );
-
-        await flushPendingIce();
-
-        const answer =
-            await peerConnection
-                .createAnswer();
-
-        await peerConnection
-            .setLocalDescription(
-                answer
-            );
-
-        socket.emit(
-            "answer-call",
-            {
-                to: pendingCaller,
-                answer
-            }
-        );
-
-        updateCallStatus(
-            "Appel connecté"
-        );
-
-    } catch (error) {
-
-        console.error(
-            "Erreur acceptation appel :",
-            error
-        );
-
-        showToast(
-            "Impossible d'accepter l'appel."
-        );
-
-        closeCallScreen();
-    }
-
-    pendingOffer = null;
-    pendingCaller = null;
-}
-
-/* =========================
-   REFUSER APPEL
-========================= */
-
-function rejectIncomingCall() {
-
-    $("incomingCallModal")
-        .classList.remove("active");
-
-    if (
-        socket &&
-        pendingCaller
-    ) {
-
-        socket.emit(
-            "reject-call",
-            {
-                to: pendingCaller
-            }
-        );
-    }
-
-    pendingOffer = null;
-    pendingCaller = null;
-}
-
-/* =========================
-   ICE EN ATTENTE
-========================= */
-
-async function flushPendingIce() {
-
-    if (!peerConnection) {
-        return;
-    }
-
-    if (
-        !peerConnection.remoteDescription
-    ) {
-        return;
-    }
-
-    for (
-        const candidate
-        of pendingIceCandidates
-    ) {
-
-        try {
-
-            await peerConnection
-                .addIceCandidate(
-                    new RTCIceCandidate(
-                        candidate
-                    )
-                );
-
-        } catch (error) {
-
-            console.error(
-                "Erreur ICE en attente :",
-                error
-            );
-        }
-    }
-
-    pendingIceCandidates = [];
-}
-
-/* =========================
-   ÉCRAN APPEL
-========================= */
-
-function showCallScreen(
-    contact,
-    callType,
-    status
-) {
-
-    $("callContactName")
-        .textContent =
-        contact.username;
-
-    $("callContactAvatar")
-        .textContent =
-        getInitial(
-            contact.username
-        );
-
-    $("callStatus")
-        .textContent =
-        status;
-
-    const remoteVideo =
-        $("remoteVideo");
-
-    const localVideo =
-        $("localVideo");
-
-    if (callType === "video") {
-
-        remoteVideo.style.display =
-            "block";
-
-        localVideo.style.display =
-            "block";
-
-    } else {
-
-        remoteVideo.style.display =
-            "none";
-
-        localVideo.style.display =
-            "none";
-    }
-
-    showScreen(
-        "callScreen"
-    );
-}
-
-function updateCallStatus(status) {
-
-    const element =
-        $("callStatus");
-
-    if (element) {
-        element.textContent =
-            status;
-    }
-}
-
-/* =========================
-   MICROPHONE
-========================= */
-
-function toggleMicrophone() {
-
-    if (!localStream) return;
-
-    const audioTracks =
-        localStream.getAudioTracks();
-
-    if (audioTracks.length === 0) {
-
-        showToast(
-            "Aucun microphone disponible."
-        );
-
-        return;
-    }
-
-    microphoneEnabled =
-        !microphoneEnabled;
-
-    audioTracks.forEach(track => {
-        track.enabled =
-            microphoneEnabled;
-    });
-
-    showToast(
-        microphoneEnabled
-            ? "Micro activé"
-            : "Micro coupé"
-    );
-}
-
-/* =========================
-   TERMINER APPEL
-========================= */
-
-function endCall() {
-
-    if (
-        socket &&
-        currentContact
-    ) {
-
-        socket.emit(
-            "end-call",
-            {
-                to:
-                    currentContact.your_id
-            }
-        );
-    }
-
-    closeCallScreen();
-}
-
-/* =========================
-   FERMER APPEL
-========================= */
-
-function closeCallScreen() {
-
-    if (localStream) {
-
-        localStream
-            .getTracks()
-            .forEach(track => {
-                track.stop();
-            });
-
-        localStream = null;
-    }
-
-    if (peerConnection) {
-
-        try {
-            peerConnection.close();
-        } catch (error) {}
-
-        peerConnection = null;
-    }
-
-    const localVideo =
-        $("localVideo");
-
-    const remoteVideo =
-        $("remoteVideo");
-
-    if (localVideo) {
-        localVideo.srcObject = null;
-    }
-
-    if (remoteVideo) {
-        remoteVideo.srcObject = null;
-    }
-
-    pendingIceCandidates = [];
-
-    showScreen("appScreen");
-
-    if (currentContact) {
-        openChat(
-            currentContact.your_id
-        );
-    }
-}
-
-/* =========================
-   PARTAGER YOURID
-========================= */
-
-async function shareYourID() {
-
-    if (!currentUser) return;
-
-    const text =
-        `Mon YourID est ${currentUser.your_id}`;
-
-    if (
-        navigator.share
-    ) {
-
-        try {
-
-            await navigator.share({
-                title: "YourID",
-                text
-            });
-
-        } catch (error) {}
-
-    } else {
-
-        try {
-
-            await navigator
-                .clipboard
-                .writeText(text);
-
-            showToast(
-                "YourID copié !"
-            );
-
-        } catch (error) {
-
+        if (
+            error?.name !==
+            "AbortError"
+        ) {
             showToast(text);
         }
     }
 }
 
-/* =========================
-   NOTIFICATIONS
-========================= */
-
-async function requestNotifications() {
-
-    if (
-        !("Notification" in window)
-    ) {
-
-        showToast(
-            "Les notifications ne sont pas disponibles."
-        );
-
-        return;
-    }
-
-    try {
-
-        const permission =
-            await Notification
-                .requestPermission();
-
-        if (
-            permission === "granted"
-        ) {
-
-            showToast(
-                "Notifications activées."
-            );
-
-        } else {
-
-            showToast(
-                "Notifications refusées."
-            );
-        }
-
-    } catch (error) {
-
-        console.error(error);
-
-        showToast(
-            "Impossible d'activer les notifications."
-        );
-    }
-}
-
-/* =========================
+/* =========================================================
    MODE SOMBRE
-========================= */
+========================================================= */
 
 function toggleDarkMode() {
-
     document.body.classList.toggle(
         "dark"
     );
@@ -2199,44 +1410,174 @@ function toggleDarkMode() {
         );
 
     localStorage.setItem(
-        "yourid_dark_mode",
+        "yourid_dark",
+        enabled ? "1" : "0"
+    );
+
+    showToast(
         enabled
-            ? "true"
-            : "false"
+            ? "Mode sombre activé."
+            : "Mode sombre désactivé."
     );
 }
 
 function loadDarkMode() {
-
     const enabled =
         localStorage.getItem(
-            "yourid_dark_mode"
+            "yourid_dark"
+        ) === "1";
+
+    document.body.classList.toggle(
+        "dark",
+        enabled
+    );
+}
+
+/* =========================================================
+   NOTIFICATIONS
+========================================================= */
+
+async function requestNotifications() {
+    if (
+        !("Notification" in window)
+    ) {
+        showToast(
+            "Les notifications ne sont pas disponibles."
         );
 
-    if (enabled === "true") {
+        return;
+    }
 
-        document.body.classList.add(
-            "dark"
+    try {
+
+        const permission =
+            await Notification.requestPermission();
+
+        if (
+            permission === "granted"
+        ) {
+            showToast(
+                "Notifications activées."
+            );
+        } else {
+            showToast(
+                "Notifications non autorisées."
+            );
+        }
+
+    } catch (error) {
+
+        console.error(
+            "Notifications :",
+            error
+        );
+
+        showToast(
+            "Impossible d'activer les notifications."
         );
     }
 }
 
-/* =========================
-   INITIALISATION
-========================= */
+function requestNotificationsForMessage(
+    message
+) {
+    if (
+        !("Notification" in window) ||
+        Notification.permission !==
+        "granted"
+    ) {
+        return;
+    }
 
-async function initYourID() {
+    try {
 
-    console.log(
-        "🚀 Initialisation de YourID..."
+        new Notification(
+            "YourID",
+            {
+                body:
+                    String(
+                        message.content ||
+                        "Nouveau message"
+                    )
+            }
+        );
+
+    } catch {
+        // Le navigateur peut refuser les notifications.
+    }
+}
+
+/* =========================================================
+   APPELS DÉSACTIVÉS
+========================================================= */
+
+function callsDisabled() {
+    showToast(
+        "Les appels sont désactivés pour le moment."
     );
+}
 
+function startAudioCall() {
+    callsDisabled();
+}
+
+function startVideoCall() {
+    callsDisabled();
+}
+
+function acceptIncomingCall() {
+    callsDisabled();
+
+    $("incomingCallModal")
+        ?.classList.remove("active");
+}
+
+function rejectIncomingCall() {
+    $("incomingCallModal")
+        ?.classList.remove("active");
+
+    showToast(
+        "Appel refusé."
+    );
+}
+
+function toggleMicrophone() {
+    callsDisabled();
+}
+
+function endCall() {
+    $("callScreen")
+        ?.classList.remove("active");
+
+    showToast(
+        "Les appels sont désactivés."
+    );
+}
+
+/* =========================================================
+   INITIALISATION
+========================================================= */
+
+async function initialize() {
     loadDarkMode();
 
-    const loggedIn =
-        loadSession();
+    const savedUser =
+        localStorage.getItem(
+            "yourid_user"
+        );
 
-    if (!loggedIn) {
+    if (savedUser) {
+
+        try {
+            currentUser =
+                JSON.parse(savedUser);
+
+        } catch {
+            currentUser = null;
+        }
+    }
+
+    if (!authToken) {
 
         showScreen(
             "welcomeScreen"
@@ -2247,70 +1588,60 @@ async function initYourID() {
 
     try {
 
-        const response =
-            await fetch(
-                `${API}/me`,
-                {
-                    headers: {
-                        "Authorization":
-                            `Bearer ${authToken}`
-                    }
-                }
+        const data =
+            await apiFetch("/me");
+
+        if (
+            !data.success ||
+            !data.user
+        ) {
+            throw new Error(
+                "Session expirée."
             );
+        }
 
-        if (!response.ok) {
+        currentUser =
+            data.user;
 
-            localStorage.removeItem(
-                "yourid_token"
-            );
+        localStorage.setItem(
+            "yourid_user",
+            JSON.stringify(
+                currentUser
+            )
+        );
 
-            localStorage.removeItem(
-                "yourid_user"
-            );
+        showScreen(
+            "appScreen"
+        );
 
-            currentUser = null;
-            authToken = null;
-
-            showScreen(
-                "welcomeScreen"
-            );
-
-            return;
-        }const data = await response.json();
-
-if (!data.success) {
-    localStorage.removeItem("yourid_token");
-    localStorage.removeItem("yourid_user");
-
-    currentUser = null;
-    authToken = null;
-
-    showScreen("welcomeScreen");
-    return;
-}
-
-currentUser = data.user;
-
-saveSession();
-
-openApplication();
+        await startApplication();
 
     } catch (error) {
-        console.error("Erreur initialisation :", error);
 
-        localStorage.removeItem("yourid_token");
-        localStorage.removeItem("yourid_user");
+        console.warn(
+            "Session non valide :",
+            error
+        );
 
-        currentUser = null;
-        authToken = null;
+        clearSession();
 
-        showScreen("welcomeScreen");
+        showScreen(
+            "welcomeScreen"
+        );
     }
 }
 
+/* =========================================================
+   DÉMARRAGE
+========================================================= */
+
 document.addEventListener(
     "DOMContentLoaded",
-    initYourID
+    () => {
+        initialize();
+    }
 );
 
-      
+console.log(
+    "✅ YourID script chargé - version sans appels."
+);
