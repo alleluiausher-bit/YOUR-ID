@@ -4,294 +4,1004 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YourID</title>
-    <link rel="stylesheet" href="style.css">
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background: #f4f1ff;
+            color: #222;
+            min-height: 100vh;
+        }
+
+        button,
+        input {
+            font: inherit;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        .screen {
+            display: none;
+            min-height: 100vh;
+        }
+
+        .screen.active {
+            display: flex;
+        }
+
+        /* =========================
+           ACCUEIL
+        ========================= */
+
+        #welcomeScreen {
+            align-items: center;
+            justify-content: center;
+            padding: 25px;
+        }
+
+        .welcome-box {
+            width: 100%;
+            max-width: 430px;
+            text-align: center;
+        }
+
+        .logo {
+            width: 90px;
+            height: 90px;
+            margin: 0 auto 20px;
+            border-radius: 28px;
+            background: #6c3df5;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 38px;
+            font-weight: bold;
+            box-shadow: 0 15px 35px rgba(108, 61, 245, .25);
+        }
+
+        h1 {
+            font-size: 38px;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #777;
+            margin-bottom: 35px;
+        }
+
+        .primary-btn,
+        .secondary-btn {
+            width: 100%;
+            border: none;
+            border-radius: 15px;
+            padding: 15px;
+            margin-top: 12px;
+            font-weight: bold;
+        }
+
+        .primary-btn {
+            background: #6c3df5;
+            color: white;
+        }
+
+        .secondary-btn {
+            background: white;
+            color: #6c3df5;
+            border: 1px solid #ddd;
+        }
+
+        /* =========================
+           AUTH
+        ========================= */
+
+        .auth-screen {
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .auth-box {
+            width: 100%;
+            max-width: 430px;
+            background: white;
+            padding: 28px;
+            border-radius: 25px;
+            box-shadow: 0 15px 40px rgba(0,0,0,.08);
+        }
+
+        .auth-box h2 {
+            margin-bottom: 8px;
+        }
+
+        .auth-box p {
+            color: #777;
+            margin-bottom: 25px;
+        }
+
+        .input {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid #ddd;
+            border-radius: 13px;
+            margin-bottom: 12px;
+            outline: none;
+        }
+
+        .input:focus {
+            border-color: #6c3df5;
+        }
+
+        .back-btn {
+            border: none;
+            background: transparent;
+            color: #6c3df5;
+            margin-bottom: 20px;
+        }
+
+        /* =========================
+           APPLICATION
+        ========================= */
+
+        #appScreen {
+            flex-direction: column;
+        }
+
+        .topbar {
+            background: white;
+            padding: 18px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #eee;
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+
+        .topbar h2 {
+            color: #6c3df5;
+        }
+
+        .icon-btn {
+            width: 42px;
+            height: 42px;
+            border: none;
+            border-radius: 50%;
+            background: #f0ebff;
+            color: #6c3df5;
+        }
+
+        .content {
+            flex: 1;
+            padding: 20px;
+            padding-bottom: 85px;
+        }
+
+        .page {
+            display: none;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        .search {
+            width: 100%;
+            padding: 13px 16px;
+            border: none;
+            background: white;
+            border-radius: 14px;
+            margin-bottom: 18px;
+            outline: none;
+        }
+
+        .empty {
+            text-align: center;
+            color: #888;
+            padding: 50px 15px;
+        }
+
+        .empty .emoji {
+            font-size: 45px;
+            margin-bottom: 15px;
+        }
+
+        /* =========================
+           CONVERSATIONS
+        ========================= */
+
+        .conversation-item {
+            background: white;
+            border-radius: 17px;
+            padding: 14px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: #6c3df5;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .conversation-info {
+            flex: 1;
+        }
+
+        .conversation-info strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .conversation-info span {
+            color: #888;
+            font-size: 13px;
+        }
+
+        /* =========================
+           CONTACTS
+        ========================= */
+
+        .section-title {
+            margin-bottom: 15px;
+        }
+
+        .contact-card {
+            background: white;
+            padding: 15px;
+            border-radius: 17px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .contact-info {
+            flex: 1;
+        }
+
+        .contact-info strong {
+            display: block;
+        }
+
+        .contact-info small {
+            color: #888;
+        }
+
+        /* =========================
+           CHAT
+        ========================= */
+
+        #chatPage {
+            padding: 0;
+            position: fixed;
+            inset: 0;
+            background: #f4f1ff;
+            z-index: 20;
+            flex-direction: column;
+        }
+
+        #chatPage.active {
+            display: flex;
+        }
+
+        .chat-header {
+            background: white;
+            padding: 12px 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .chat-header-info {
+            flex: 1;
+        }
+
+        .chat-header-info strong {
+            display: block;
+        }
+
+        .online-status {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .message {
+            max-width: 75%;
+            padding: 11px 14px;
+            margin-bottom: 10px;
+            border-radius: 17px;
+            word-wrap: break-word;
+        }
+
+        .message.sent {
+            margin-left: auto;
+            background: #6c3df5;
+            color: white;
+            border-bottom-right-radius: 5px;
+        }
+
+        .message.received {
+            background: white;
+            border-bottom-left-radius: 5px;
+        }
+
+        .message-time {
+            display: block;
+            font-size: 10px;
+            opacity: .65;
+            margin-top: 5px;
+        }
+
+        .typing {
+            color: #888;
+            font-size: 12px;
+            padding: 0 20px 8px;
+        }
+
+        .chat-input-area {
+            background: white;
+            padding: 10px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .chat-input {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            padding: 12px 15px;
+            outline: none;
+        }
+
+        .send-btn {
+            width: 45px;
+            border: none;
+            border-radius: 50%;
+            background: #6c3df5;
+            color: white;
+        }
+
+        /* =========================
+           PROFIL
+        ========================= */
+
+        .profile-card {
+            background: white;
+            border-radius: 22px;
+            padding: 30px 20px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .profile-avatar {
+            width: 90px;
+            height: 90px;
+            border-radius: 50%;
+            background: #6c3df5;
+            color: white;
+            margin: 0 auto 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .your-id {
+            margin-top: 10px;
+            color: #6c3df5;
+            font-weight: bold;
+        }
+
+        .settings-item {
+            background: white;
+            padding: 17px;
+            border-radius: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* =========================
+           NAVIGATION
+        ========================= */
+
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 70px;
+            background: white;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            border-top: 1px solid #eee;
+            z-index: 10;
+        }
+
+        .nav-btn {
+            background: transparent;
+            border: none;
+            color: #888;
+            font-size: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .nav-btn.active {
+            color: #6c3df5;
+            font-weight: bold;
+        }
+
+        .nav-icon {
+            font-size: 21px;
+        }
+
+        /* =========================
+           MODALES
+        ========================= */
+
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.55);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-box {
+            width: 100%;
+            max-width: 400px;
+            background: white;
+            border-radius: 25px;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .modal-box h2 {
+            margin-bottom: 12px;
+        }
+
+        .call-avatar {
+            width: 90px;
+            height: 90px;
+            margin: 20px auto;
+            border-radius: 50%;
+            background: #6c3df5;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 35px;
+        }
+
+        .call-actions {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .call-action {
+            width: 55px;
+            height: 55px;
+            border: none;
+            border-radius: 50%;
+            font-size: 22px;
+        }
+
+        /* =========================
+           APPEL EN COURS
+        ========================= */
+
+        #callScreen {
+            background: #171221;
+            color: white;
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        #callScreen.active {
+            display: flex;
+        }
+
+        #remoteVideo {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            position: absolute;
+            inset: 0;
+            background: #111;
+        }
+
+        #localVideo {
+            width: 120px;
+            height: 170px;
+            object-fit: cover;
+            position: absolute;
+            right: 15px;
+            top: 15px;
+            border-radius: 15px;
+            background: #333;
+        }
+
+        .call-info {
+            position: relative;
+            z-index: 2;
+            margin-bottom: 40px;
+        }
+
+        .call-controls {
+            position: absolute;
+            bottom: 35px;
+            z-index: 3;
+            display: flex;
+            gap: 15px;
+        }
+
+        /* =========================
+           TOAST
+        ========================= */
+
+        #toast {
+            position: fixed;
+            left: 50%;
+            bottom: 85px;
+            transform: translateX(-50%);
+            background: #222;
+            color: white;
+            padding: 12px 18px;
+            border-radius: 20px;
+            display: none;
+            z-index: 500;
+            max-width: 90%;
+            text-align: center;
+        }
+
+        #toast.show {
+            display: block;
+        }
+
+        /* =========================
+           DARK MODE
+        ========================= */
+
+        body.dark {
+            background: #111;
+            color: white;
+        }
+
+        body.dark .topbar,
+        body.dark .bottom-nav,
+        body.dark .conversation-item,
+        body.dark .contact-card,
+        body.dark .profile-card,
+        body.dark .settings-item,
+        body.dark .chat-header,
+        body.dark .chat-input-area,
+        body.dark .auth-box,
+        body.dark .modal-box {
+            background: #1d1d1d;
+            color: white;
+        }
+
+        body.dark .search,
+        body.dark .input,
+        body.dark .chat-input {
+            background: #292929;
+            color: white;
+            border-color: #444;
+        }
+
+        body.dark .message.received {
+            background: #292929;
+        }
+
+        body.dark .subtitle,
+        body.dark .conversation-info span,
+        body.dark .contact-info small {
+            color: #aaa;
+        }
+    </style>
 </head>
 
 <body>
 
-<div id="toast"></div>
+<!-- =========================
+     ACCUEIL
+========================= -->
 
-<!-- ==================== BIENVENUE ==================== -->
-<section id="welcomeScreen" class="screen active welcome">
+<section id="welcomeScreen" class="screen active">
+    <div class="welcome-box">
 
-    <div class="brand-logo">
-        <span>•••</span>
+        <div class="logo">Y</div>
+
+        <h1>YourID</h1>
+
+        <p class="subtitle">
+            Communique simplement avec ton YourID.
+        </p>
+
+        <button class="primary-btn" onclick="showScreen('registerScreen')">
+            Créer un compte
+        </button>
+
+        <button class="secondary-btn" onclick="showScreen('loginScreen')">
+            Se connecter
+        </button>
+
     </div>
-
-    <h1>Your<span>ID</span></h1>
-
-    <p class="welcome-text">
-        Votre identité.<br>
-        Vos conversations.<br>
-        En toute liberté.
-    </p>
-
-    <button class="btn primary" onclick="showScreen('registerScreen')">
-        CRÉER UN COMPTE
-    </button>
-
-    <button class="btn secondary" onclick="showScreen('loginScreen')">
-        SE CONNECTER
-    </button>
-
-    <p class="version">YourID • V1.0</p>
-
 </section>
 
-<!-- ==================== INSCRIPTION ==================== -->
+<!-- =========================
+     INSCRIPTION
+========================= -->
+
 <section id="registerScreen" class="screen auth-screen">
 
-    <div class="topbar">
-        <button class="back" onclick="showScreen('welcomeScreen')">←</button>
-        <h2>Créer un compte</h2>
-    </div>
+    <div class="auth-box">
 
-    <div class="auth-icon">👤</div>
+        <button class="back-btn" onclick="showScreen('welcomeScreen')">
+            ← Retour
+        </button>
 
-    <p class="description">
-        Crée ton identité YourID et obtiens<br>
-        ton numéro fictif unique.
-    </p>
+        <h2>Créer ton compte</h2>
 
-    <div class="input-box">
-        <span>👤</span>
-        <input id="username" type="text" placeholder="Pseudo" maxlength="25">
-    </div>
+        <p>Choisis ton nom et ton mot de passe.</p>
 
-    <div class="input-box">
-        <span>🔒</span>
-        <input id="password" type="password" placeholder="Mot de passe">
-        <button class="eye" onclick="togglePassword('password', this)">👁</button>
-    </div>
+        <input
+            id="registerUsername"
+            class="input"
+            type="text"
+            placeholder="Nom d'utilisateur"
+            autocomplete="username"
+        >
 
-    <div class="input-box">
-        <span>🔒</span>
-        <input id="confirmPassword" type="password" placeholder="Confirmer le mot de passe">
-    </div>
+        <input
+            id="registerPassword"
+            class="input"
+            type="password"
+            placeholder="Mot de passe"
+            autocomplete="new-password"
+        >
 
-    <button class="btn primary" onclick="createAccount()">
-        CRÉER MON COMPTE
-    </button>
+        <button class="primary-btn" onclick="registerUser()">
+            Créer mon compte
+        </button>
 
-    <div class="generated-id">
-        <small>TON NUMÉRO YOURID</small>
-        <strong id="generatedNumber">---</strong>
     </div>
 
 </section>
 
-<!-- ==================== CONNEXION ==================== -->
+<!-- =========================
+     CONNEXION
+========================= -->
+
 <section id="loginScreen" class="screen auth-screen">
 
-    <div class="topbar">
-        <button class="back" onclick="showScreen('welcomeScreen')">←</button>
+    <div class="auth-box">
+
+        <button class="back-btn" onclick="showScreen('welcomeScreen')">
+            ← Retour
+        </button>
+
         <h2>Connexion</h2>
+
+        <p>Connecte-toi à ton compte YourID.</p>
+
+        <input
+            id="loginYourID"
+            class="input"
+            type="text"
+            placeholder="YourID"
+        >
+
+        <input
+            id="loginPassword"
+            class="input"
+            type="password"
+            placeholder="Mot de passe"
+            autocomplete="current-password"
+        >
+
+        <button class="primary-btn" onclick="loginUser()">
+            Se connecter
+        </button>
+
     </div>
-
-    <div class="auth-icon">🔐</div>
-
-    <p class="description">
-        Connecte-toi à ton compte YourID.
-    </p>
-
-    <div class="input-box">
-        <span>🆔</span>
-        <input id="loginId" type="text" placeholder="Votre ID">
-    </div>
-
-    <div class="input-box">
-        <span>🔒</span>
-        <input id="loginPassword" type="password" placeholder="Mot de passe">
-        <button class="eye" onclick="togglePassword('loginPassword', this)">👁</button>
-    </div>
-
-    <button class="btn primary" onclick="loginUser()">
-        SE CONNECTER
-    </button>
 
 </section>
 
-<!-- ==================== APPLICATION ==================== -->
-<section id="homeScreen" class="screen app-screen">
+<!-- =========================
+     APPLICATION
+========================= -->
 
-    <header class="app-header">
+<section id="appScreen" class="screen">
 
-        <div class="profile-mini" onclick="openProfile()">
-            <div id="miniAvatar" class="mini-avatar">👤</div>
+    <header class="topbar">
 
-            <div>
-                <small>Connecté en tant que</small>
-                <strong id="headerUsername">Utilisateur</strong>
-            </div>
-        </div>
+        <h2>YourID</h2>
 
-        <button class="icon-button" onclick="openSettings()">⚙️</button>
+        <button class="icon-btn" onclick="showPage('profilePage')">
+            👤
+        </button>
 
     </header>
 
-    <div class="my-id-card">
+    <main class="content">
 
-        <div>
-            <small>MON YOURID</small>
-            <strong id="myId">---</strong>
+        <!-- DISCUSSIONS -->
+
+        <div id="homePage" class="page active">
+
+            <input
+                class="search"
+                id="conversationSearch"
+                placeholder="🔎 Rechercher une conversation..."
+                oninput="filterConversations()"
+            >
+
+            <h3 class="section-title">Discussions</h3>
+
+            <div id="conversationsList">
+
+                <div class="empty">
+                    <div class="emoji">💬</div>
+                    <p>Aucune conversation pour le moment.</p>
+                    <small>Ajoute un contact pour commencer.</small>
+                </div>
+
+            </div>
+
         </div>
 
-        <div class="id-actions">
-            <button onclick="copyMyId()" title="Copier">📋</button>
-            <button onclick="shareMyId()" title="Partager">↗️</button>
+        <!-- CONTACTS -->
+
+        <div id="contactsPage" class="page">
+
+            <h3 class="section-title">Contacts</h3>
+
+            <button
+                class="primary-btn"
+                onclick="openAddContactModal()"
+            >
+                ＋ Ajouter un contact
+            </button>
+
+            <br><br>
+
+            <div id="contactsList">
+
+                <div class="empty">
+                    <div class="emoji">👥</div>
+                    <p>Aucun contact.</p>
+                </div>
+
+            </div>
+
         </div>
 
-    </div>
+        <!-- PROFIL -->
 
-    <div class="search-box">
-        <span>🔍</span>
-        <input id="searchInput" type="text" placeholder="Rechercher...">
-    </div>
+        <div id="profilePage" class="page">
 
-    <div class="tabs">
+            <div class="profile-card">
 
-        <button class="tab active" onclick="showTab('discussions', this)">
-            Discussions
-        </button>
+                <div id="profileAvatar" class="profile-avatar">
+                    ?
+                </div>
 
-        <button class="tab" onclick="showTab('contacts', this)">
-            Contacts
-        </button>
+                <h2 id="profileUsername">
+                    Utilisateur
+                </h2>
 
-    </div>
-
-    <!-- DISCUSSIONS -->
-    <div id="discussions" class="tab-content">
-
-        <div id="conversations">
-
-            <div class="empty-state" id="emptyConversations">
-                <div class="empty-icon">💬</div>
-                <h3>Aucune discussion</h3>
-                <p>
-                    Ajoute un contact pour<br>
-                    commencer à discuter.
+                <p class="your-id">
+                    YourID :
+                    <span id="profileYourID">---</span>
                 </p>
+
+            </div>
+
+            <button
+                class="secondary-btn"
+                onclick="shareYourID()"
+            >
+                📤 Partager mon YourID
+            </button>
+
+            <button
+                class="secondary-btn"
+                onclick="logoutUser()"
+            >
+                🚪 Se déconnecter
+            </button>
+
+        </div>
+
+        <!-- PARAMÈTRES -->
+
+        <div id="settingsPage" class="page">
+
+            <h3 class="section-title">Paramètres</h3>
+
+            <div class="settings-item">
+                <span>🌙 Mode sombre</span>
+
+                <button
+                    class="icon-btn"
+                    onclick="toggleDarkMode()"
+                >
+                    🌓
+                </button>
+            </div>
+
+            <div class="settings-item">
+                <span>🔔 Notifications</span>
+
+                <button
+                    class="icon-btn"
+                    onclick="requestNotifications()"
+                >
+                    🔔
+                </button>
             </div>
 
         </div>
 
-    </div>
+    </main>
 
-    <!-- CONTACTS -->
-    <div id="contacts" class="tab-content hidden">
-
-        <div id="contactList">
-
-            <div class="empty-state">
-                <div class="empty-icon">👥</div>
-                <h3>Aucun contact</h3>
-                <p>Ajoute ton premier contact.</p>
-            </div>
-
-        </div>
-
-    </div>
-
-    <button class="new-chat" onclick="showScreen('addContactScreen')">
-        +
-    </button>
+    <!-- NAVIGATION -->
 
     <nav class="bottom-nav">
 
-        <button class="nav-item active" onclick="goHome()">
-            <span>💬</span>
-            <small>Discussions</small>
+        <button
+            class="nav-btn active"
+            data-page="homePage"
+            onclick="showPage('homePage')"
+        >
+            <span class="nav-icon">💬</span>
+            Discussions
         </button>
 
-        <button class="nav-item" onclick="goContacts()">
-            <span>👥</span>
-            <small>Contacts</small>
+        <button
+            class="nav-btn"
+            data-page="contactsPage"
+            onclick="showPage('contactsPage')"
+        >
+            <span class="nav-icon">👥</span>
+            Contacts
         </button>
 
-        <button class="nav-item" onclick="openCalls()">
-            <span>📞</span>
-            <small>Appels</small>
-        </button>
-
-        <button class="nav-item" onclick="openProfile()">
-            <span>👤</span>
-            <small>Profil</small>
+        <button
+            class="nav-btn"
+            data-page="settingsPage"
+            onclick="showPage('settingsPage')"
+        >
+            <span class="nav-icon">⚙️</span>
+            Paramètres
         </button>
 
     </nav>
 
 </section>
 
-<!-- ==================== AJOUT CONTACT ==================== -->
-<section id="addContactScreen" class="screen auth-screen">
+<!-- =========================
+     CHAT
+========================= -->
 
-    <div class="topbar">
-        <button class="back" onclick="goHome()">←</button>
-        <h2>Ajouter un contact</h2>
-    </div>
-
-    <div class="auth-icon">👥</div>
-
-    <p class="description">
-        Utilise le YourID de ton contact.
-    </p>
-
-    <div class="input-box">
-        <span>🆔</span>
-        <input id="contactId" type="text" placeholder="Ex : 741 258 963">
-    </div>
-
-    <div class="input-box">
-        <span>👤</span>
-        <input id="contactName" type="text" placeholder="Nom du contact">
-    </div>
-
-    <button class="btn primary" onclick="addContact()">
-        AJOUTER
-    </button>
-
-</section>
-
-<!-- ==================== CHAT ==================== -->
-<section id="chatScreen" class="screen chat-screen">
+<section id="chatPage" class="screen">
 
     <header class="chat-header">
 
-        <button class="back static-back" onclick="goHome()">←</button>
+        <button
+            class="icon-btn"
+            onclick="closeChat()"
+        >
+            ←
+        </button>
 
-        <div id="chatAvatar" class="chat-avatar">
-            👤
+        <div id="chatAvatar" class="avatar">
+            ?
         </div>
 
-        <div class="chat-user">
-            <strong id="chatName">Contact</strong>
-            <small id="chatId">---</small>
+        <div class="chat-header-info">
+
+            <strong id="chatContactName">
+                Contact
+            </strong>
+
+            <span
+                id="chatOnlineStatus"
+                class="online-status"
+            >
+                Hors ligne
+            </span>
+
         </div>
 
-        <div class="chat-actions">
-            <button onclick="fakeCall()">📞</button>
-            <button onclick="chatMenu()">⋮</button>
-        </div>
+        <button
+            class="icon-btn"
+            onclick="startAudioCall()"
+        >
+            📞
+        </button>
+
+        <button
+            class="icon-btn"
+            onclick="startVideoCall()"
+        >
+            🎥
+        </button>
 
     </header>
 
-    <div id="messages" class="messages"></div>
+    <div
+        id="chatMessages"
+        class="chat-messages"
+    ></div>
 
-    <div class="message-input">
+    <div
+        id="typingIndicator"
+        class="typing"
+    ></div>
 
-        <button class="attach-button" onclick="showToast('Fonction bientôt disponible')">
-            ＋
-        </button>
+    <div class="chat-input-area">
 
         <input
-            id="messageText"
+            id="messageInput"
+            class="chat-input"
             type="text"
             placeholder="Écrire un message..."
+            oninput="handleTyping()"
             onkeydown="handleMessageKey(event)"
         >
 
-        <button class="send-button" onclick="sendMessage()">
+        <button
+            class="send-btn"
+            onclick="sendMessage()"
+        >
             ➤
         </button>
 
@@ -299,112 +1009,155 @@
 
 </section>
 
-<!-- ==================== PROFIL ==================== -->
-<section id="profileScreen" class="screen profile-screen">
+<!-- =========================
+     MODAL AJOUT CONTACT
+========================= -->
 
-    <div class="topbar">
-        <button class="back" onclick="goHome()">←</button>
-        <h2>Mon profil</h2>
+<div id="addContactModal" class="modal">
+
+    <div class="modal-box">
+
+        <h2>Ajouter un contact</h2>
+
+        <p>Entre le YourID de ton contact.</p>
+
+        <input
+            id="contactYourIDInput"
+            class="input"
+            placeholder="123 456 789"
+        >
+
+        <button
+            class="primary-btn"
+            onclick="addContact()"
+        >
+            Ajouter
+        </button>
+
+        <button
+            class="secondary-btn"
+            onclick="closeAddContactModal()"
+        >
+            Annuler
+        </button>
+
     </div>
 
-    <div class="profile-photo-area">
+</div>
 
-        <div id="profileAvatar" class="profile-avatar">
+<!-- =========================
+     APPEL ENTRANT
+========================= -->
+
+<div id="incomingCallModal" class="modal">
+
+    <div class="modal-box">
+
+        <h2 id="incomingCallTitle">
+            Appel entrant
+        </h2>
+
+        <div
+            id="incomingCallAvatar"
+            class="call-avatar"
+        >
+            📞
+        </div>
+
+        <p id="incomingCallFrom">
+            Quelqu'un t'appelle...
+        </p>
+
+        <div class="call-actions">
+
+            <button
+                class="call-action"
+                onclick="rejectIncomingCall()"
+            >
+                ❌
+            </button>
+
+            <button
+                class="call-action"
+                onclick="acceptIncomingCall()"
+            >
+                ✅
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+<!-- =========================
+     APPEL EN COURS
+========================= -->
+
+<section id="callScreen" class="screen">
+
+    <video
+        id="remoteVideo"
+        autoplay
+        playsinline
+    ></video>
+
+    <video
+        id="localVideo"
+        autoplay
+        muted
+        playsinline
+    ></video>
+
+    <div class="call-info">
+
+        <div
+            id="callContactAvatar"
+            class="call-avatar"
+        >
             👤
         </div>
 
-        <label class="photo-button">
-            📷
-            <input type="file" accept="image/*" onchange="changeProfilePhoto(event)">
-        </label>
+        <h2 id="callContactName">
+            Appel
+        </h2>
+
+        <p id="callStatus">
+            Connexion...
+        </p>
 
     </div>
 
-    <h2 id="profileUsername">Utilisateur</h2>
+    <div class="call-controls">
 
-    <div class="profile-id">
-        <small>YOURID</small>
-        <strong id="profileId">---</strong>
-    </div>
+        <button
+            class="call-action"
+            onclick="toggleMicrophone()"
+        >
+            🎙️
+        </button>
 
-    <button class="menu-button" onclick="copyMyId()">
-        📋 &nbsp; Copier mon YourID
-    </button>
-
-    <button class="menu-button" onclick="shareMyId()">
-        ↗️ &nbsp; Partager mon YourID
-    </button>
-
-    <button class="menu-button danger" onclick="logout()">
-        🚪 &nbsp; Se déconnecter
-    </button>
-
-</section>
-
-<!-- ==================== APPELS ==================== -->
-<section id="callsScreen" class="screen profile-screen">
-
-    <div class="topbar">
-        <button class="back" onclick="goHome()">←</button>
-        <h2>Appels</h2>
-    </div>
-
-    <div id="callList">
-
-        <div class="empty-state">
-            <div class="empty-icon">📞</div>
-            <h3>Aucun appel</h3>
-            <p>Ton historique d'appels apparaîtra ici.</p>
-        </div>
+        <button
+            class="call-action"
+            onclick="endCall()"
+        >
+            ❌
+        </button>
 
     </div>
 
 </section>
 
-<!-- ==================== PARAMÈTRES ==================== -->
-<section id="settingsScreen" class="screen profile-screen">
+<!-- TOAST -->
 
-    <div class="topbar">
-        <button class="back" onclick="goHome()">←</button>
-        <h2>Paramètres</h2>
-    </div>
+<div id="toast"></div>
 
-    <div class="settings-group">
+<!-- =========================
+     SCRIPTS
+========================= -->
 
-        <h3>Apparence</h3>
-
-        <div class="setting-row">
-
-            <div>
-                <strong>🌙 Mode sombre</strong>
-                <small>Modifier l'apparence de YourID</small>
-            </div>
-
-            <label class="switch">
-                <input id="darkModeToggle" type="checkbox" onchange="toggleDarkMode()">
-                <span></span>
-            </label>
-
-        </div>
-
-    </div>
-
-    <div class="settings-group">
-
-        <h3>Compte</h3>
-
-        <button class="setting-button" onclick="openProfile()">
-            👤 Mon profil
-            <span>›</span>
-        </button>
-
-        <button class="setting-button" onclick="showToast('YourID V1.0')">
-            ℹ️ À propos
-            <span>›</span>
-        </button>
-
-    </div>
 <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+<script src="script.js"></script>
 
 </body>
 </html>
