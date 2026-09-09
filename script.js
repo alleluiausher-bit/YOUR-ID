@@ -1408,24 +1408,7 @@ function createPeerConnection(remoteID) {
        STREAM DISTANT
     ========================= */
 
-    peerConnection.ontrack =
-        event => {
-
-            const remoteVideo =
-                $("remoteVideo");
-
-            if (
-                remoteVideo &&
-                event.streams[0]
-            ) {
-
-                remoteVideo.srcObject =
-                    event.streams[0];
-
-                remoteVideo.play()
-                    .catch(() => {});
-            }
-        };
+   
 
     /* =========================
        ICE
@@ -1442,7 +1425,30 @@ function createPeerConnection(remoteID) {
                 socket.emit(
                     "ice-candidate",
                     {
-                        to: remoteID,
+                        to: remoteIpeerConnection.ontrack = event => {
+
+    if (!event.streams[0]) return;
+
+    const remoteVideo = $("remoteVideo");
+
+    if (!remoteVideo) return;
+
+    remoteVideo.srcObject = event.streams[0];
+
+    remoteVideo.muted = false;
+    remoteVideo.volume = 1.0;
+
+    remoteVideo.play()
+        .then(() => {
+            console.log("🔊 Audio distant activé");
+        })
+        .catch(error => {
+            console.error(
+                "Impossible de lire le son distant :",
+                error
+            );
+        });
+};D,
                         candidate:
                             event.candidate
                     }
