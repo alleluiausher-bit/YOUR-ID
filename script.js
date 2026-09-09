@@ -1404,19 +1404,7 @@ function createPeerConnection(remoteID) {
             });
     }
 
-    /* =========================
-       STREAM DISTANT
-    ========================= */
-
    
-
-    /* =========================
-       ICE
-    ========================= */
-
-    peerConnection.onicecandidate =
-        event => {
-
             if (
                 event.candidate &&
                 socket
@@ -1428,7 +1416,57 @@ function createPeerConnection(remoteID) {
                         to: remoteIpeerConnection.ontrack = event => {
 
     if (!event.streams[0]) return;
+/* =========================
+   STREAM DISTANT
+========================= */
 
+peerConnection.ontrack = event => {
+
+    if (!event.streams[0]) return;
+
+    const remoteVideo = $("remoteVideo");
+
+    if (!remoteVideo) return;
+
+    remoteVideo.srcObject = event.streams[0];
+
+    remoteVideo.muted = false;
+    remoteVideo.volume = 1.0;
+
+    remoteVideo.play()
+        .then(() => {
+            console.log("🔊 Audio distant activé");
+        })
+        .catch(error => {
+            console.error(
+                "Impossible de lire le son distant :",
+                error
+            );
+        });
+};
+
+/* =========================
+   ICE
+========================= */
+
+peerConnection.onicecandidate =
+    event => {
+
+        if (
+            event.candidate &&
+            socket
+        ) {
+
+            socket.emit(
+                "ice-candidate",
+                {
+                    to: remoteID,
+                    candidate:
+                        event.candidate
+                }
+            );
+        }
+    };
     const remoteVideo = $("remoteVideo");
 
     if (!remoteVideo) return;
